@@ -1,0 +1,416 @@
+{
+ "4.1": [
+  {
+   "hands": {
+    "N": "C5 C7 CT DK H3 H7 H8 H9 S2 S5 SJ SQ ST",
+    "E": "C2 C8 C9 CJ D3 D6 D7 D8 H4 S3 S6 S7 S9",
+    "S": "C3 C4 CQ D2 D4 D5 DA DT H2 H5 HK SA SK",
+    "W": "C6 CA CK D9 DJ DQ H6 HA HJ HQ HT S4 S8"
+   },
+   "declarer": "S",
+   "trump": "N",
+   "needed": 7
+  },
+  {
+   "hands": {
+    "N": "C2 C4 C5 C8 D8 DJ DQ DT H3 H8 HQ S4 S9",
+    "E": "C3 C6 D2 D3 D9 H2 H5 H6 HJ S5 S8 SJ SQ",
+    "S": "C9 CA D4 DA DK H4 H9 HT S6 S7 SA SK ST",
+    "W": "C7 CJ CK CQ CT D5 D6 D7 H7 HA HK S2 S3"
+   },
+   "declarer": "S",
+   "trump": "N",
+   "needed": 7
+  },
+  {
+   "hands": {
+    "N": "C6 CA D3 D5 D9 H2 H5 H7 H8 S6 S8 SA SQ",
+    "E": "C4 C8 C9 CJ CK CQ D2 D4 DA HJ S2 S7 ST",
+    "S": "C2 C3 C7 CT D7 D8 DJ H3 HA HK S9 SJ SK",
+    "W": "C5 D6 DK DQ DT H4 H6 H9 HQ HT S3 S4 S5"
+   },
+   "declarer": "S",
+   "trump": "N",
+   "needed": 7
+  },
+  {
+   "hands": {
+    "N": "C3 C6 C8 CK D8 D9 DA H2 H3 H7 S3 S4 SK",
+    "E": "C4 C5 CQ DJ DQ DT HQ S5 S6 S7 S9 SJ ST",
+    "S": "C2 C9 CA D3 D4 DK H5 H6 HT S2 S8 SA SQ",
+    "W": "C7 CJ CT D2 D5 D6 D7 H4 H8 H9 HA HJ HK"
+   },
+   "declarer": "S",
+   "trump": "N",
+   "needed": 7
+  }
+ ],
+ "4.2": [
+  {
+   "hands": {
+    "N": "C8 CJ CT D2 D3 D5 D6 DQ H5 H7 HT S2 ST",
+    "E": "C2 C5 CQ D4 D8 D9 DJ H4 HJ HQ S3 SA SQ",
+    "S": "C3 C4 C7 CA CK D7 DA DK DT H6 HA S6 SJ",
+    "W": "C6 C9 H2 H3 H8 H9 HK S4 S5 S7 S8 S9 SK"
+   },
+   "declarer": "S",
+   "trump": "N",
+   "needed": 7
+  },
+  {
+   "hands": {
+    "N": "C2 C5 CA CQ D3 DA DJ H5 H8 HT S3 S6 SJ",
+    "E": "C3 C6 C9 D4 D8 DQ H3 H4 H6 S2 S9 SA SQ",
+    "S": "C8 CJ CK D2 D5 D6 DK DT H9 HA HQ S7 ST",
+    "W": "C4 C7 CT D7 D9 H2 H7 HJ HK S4 S5 S8 SK"
+   },
+   "declarer": "S",
+   "trump": "N",
+   "needed": 9
+  },
+  {
+   "hands": {
+    "N": "C2 C3 C5 C6 C7 CJ D6 DK DQ DT HK S4 SA",
+    "E": "C8 CK D4 D5 D7 D9 DJ HQ HT S5 S9 SJ SQ",
+    "S": "C9 CA D2 D8 DA H2 H3 H6 H7 HA S7 SK ST",
+    "W": "C4 CQ CT D3 H4 H5 H8 H9 HJ S2 S3 S6 S8"
+   },
+   "declarer": "S",
+   "trump": "N",
+   "needed": 9
+  },
+  {
+   "hands": {
+    "N": "C2 C6 C7 C9 CQ CT D2 D8 DK H6 H8 S3 SK",
+    "E": "C3 C4 CJ D7 H2 H3 HJ HK HT S5 S7 S9 SA",
+    "S": "C8 CA D4 D9 DA DQ H4 H7 HA S2 S4 SQ ST",
+    "W": "C5 CK D3 D5 D6 DJ DT H5 H9 HQ S6 S8 SJ"
+   },
+   "declarer": "S",
+   "trump": "N",
+   "needed": 7
+  }
+ ],
+ "4.3": [
+  {
+   "hands": {
+    "N": "C3 C8 C9 D3 D8 DA DK DT H3 HT S5 S8 SK",
+    "E": "C4 CJ CK CT D5 D9 H2 H8 S2 S4 SA SQ ST",
+    "S": "C2 C7 CA CQ D7 DJ DQ H6 H7 HQ S3 S7 SJ",
+    "W": "C5 C6 D2 D4 D6 H4 H5 H9 HA HJ HK S6 S9"
+   },
+   "declarer": "S",
+   "trump": "D",
+   "needed": 7
+  },
+  {
+   "hands": {
+    "N": "C2 C7 D2 D3 D5 D7 D8 DK DQ H2 HJ SA SQ",
+    "E": "C3 C6 C9 CJ CK CT D9 H4 H9 HA HK S2 S3",
+    "S": "C5 CA CQ D6 DA H3 HQ S5 S7 S9 SJ SK ST",
+    "W": "C4 C8 D4 DJ DT H5 H6 H7 H8 HT S4 S6 S8"
+   },
+   "declarer": "S",
+   "trump": "D",
+   "needed": 11
+  },
+  {
+   "hands": {
+    "N": "C2 C4 D4 DJ DT H3 H5 H7 S2 S4 S6 SK ST",
+    "E": "C5 C7 CK D2 H4 H6 H8 HJ HQ HT S8 S9 SJ",
+    "S": "C8 C9 CA CQ DA DK DQ H2 H9 HA HK S3 SA",
+    "W": "C3 C6 CJ CT D3 D5 D6 D7 D8 D9 S5 S7 SQ"
+   },
+   "declarer": "S",
+   "trump": "N",
+   "needed": 9
+  },
+  {
+   "hands": {
+    "N": "C3 C5 C6 C8 D3 D7 H6 H9 HA HJ SK SQ ST",
+    "E": "C2 C7 C9 CJ DK DT H3 HK HT S3 S5 S6 S9",
+    "S": "C4 D4 D6 D9 DA DQ H2 H4 H5 S2 S4 SA SJ",
+    "W": "CA CK CQ CT D2 D5 D8 DJ H7 H8 HQ S7 S8"
+   },
+   "declarer": "S",
+   "trump": "N",
+   "needed": 7
+  }
+ ],
+ "4.4": [
+  {
+   "hands": {
+    "N": "C2 C5 CA D3 D7 D8 DA DQ DT H3 HJ HQ S3",
+    "E": "C8 C9 CT D2 D4 H8 S2 S5 S7 S8 S9 SJ SK",
+    "S": "C7 CJ CK CQ DK H4 H6 H7 H9 HA S6 SQ ST",
+    "W": "C3 C4 C6 D5 D6 D9 DJ H2 H5 HK HT S4 SA"
+   },
+   "declarer": "S",
+   "trump": "H",
+   "needed": 10
+  },
+  {
+   "hands": {
+    "N": "C3 C6 C9 CJ D7 D9 DJ H4 H5 HA HK HT SJ",
+    "E": "C7 C8 CK D3 D5 H2 H3 H6 H8 S4 S7 SK ST",
+    "S": "C5 CA CQ D6 D8 DA DK H9 HJ HQ S3 S5 S6",
+    "W": "C2 C4 CT D2 D4 DQ DT H7 S2 S8 S9 SA SQ"
+   },
+   "declarer": "S",
+   "trump": "H",
+   "needed": 10
+  },
+  {
+   "hands": {
+    "N": "C3 C4 C5 CK D6 D7 D9 DT HK S2 S7 S8 SA",
+    "E": "C8 CA CJ CQ D2 D3 D4 D8 H4 H6 H7 H9 S5",
+    "S": "C6 C7 DA DJ DK DQ H8 HQ HT S3 S6 SJ ST",
+    "W": "C2 C9 CT D5 H2 H3 H5 HA HJ S4 S9 SK SQ"
+   },
+   "declarer": "S",
+   "trump": "S",
+   "needed": 7
+  },
+  {
+   "hands": {
+    "N": "C3 C4 C7 CA CJ CQ DK H2 H4 S6 S8 SJ ST",
+    "E": "C2 C9 CT D9 DA DQ H5 H6 H7 H9 HQ HT S7",
+    "S": "CK D2 D5 D8 DT H8 HA HJ HK S2 S4 SA SK",
+    "W": "C5 C6 C8 D3 D4 D6 D7 DJ H3 S3 S5 S9 SQ"
+   },
+   "declarer": "S",
+   "trump": "S",
+   "needed": 10
+  }
+ ],
+ "4.5": [
+  {
+   "hands": {
+    "N": "C3 C8 C9 CA D8 H3 H4 H5 H9 S3 S7 SK SQ",
+    "E": "C5 C6 CK CT D6 H2 H6 HA HQ S4 S5 S8 SA",
+    "S": "C4 D3 D5 D7 DA DK DQ H7 H8 HK S2 S9 SJ",
+    "W": "C2 C7 CJ CQ D2 D4 D9 DJ DT HJ HT S6 ST"
+   },
+   "declarer": "S",
+   "trump": "N",
+   "needed": 7
+  },
+  {
+   "hands": {
+    "N": "D2 D4 D5 D7 H4 H5 HK HQ S2 S6 S7 SA ST",
+    "E": "C2 D3 D8 DQ DT H2 H3 H9 HA HT S3 S9 SQ",
+    "S": "C4 C5 C6 CA CK CQ D6 DA DK H7 HJ S5 SK",
+    "W": "C3 C7 C8 C9 CJ CT D9 DJ H6 H8 S4 S8 SJ"
+   },
+   "declarer": "S",
+   "trump": "N",
+   "needed": 9
+  },
+  {
+   "hands": {
+    "N": "C7 CQ D4 D5 DA DT H6 HQ HT S2 S5 S7 SQ",
+    "E": "C3 CJ CT D7 D8 D9 DJ DQ H2 H4 HA S6 S8",
+    "S": "C2 C4 C8 CA CK D3 D6 H3 H5 H7 HJ S4 SA",
+    "W": "C5 C6 C9 D2 DK H8 H9 HK S3 S9 SJ SK ST"
+   },
+   "declarer": "S",
+   "trump": "N",
+   "needed": 7
+  },
+  {
+   "hands": {
+    "N": "C8 CK CQ D2 D5 D7 D8 DQ H4 H9 S2 S5 S6",
+    "E": "C3 C6 CA CJ D3 D4 H3 HK HT S3 S8 SJ ST",
+    "S": "CT D6 DA DK H2 H5 H6 H7 H8 HA S7 S9 SK",
+    "W": "C2 C4 C5 C7 C9 D9 DJ DT HJ HQ S4 SA SQ"
+   },
+   "declarer": "S",
+   "trump": "H",
+   "needed": 7
+  }
+ ],
+ "5.1": [
+  {
+   "hands": {
+    "N": "C2 C6 D5 DA DJ DT H3 H5 H7 H9 S5 S8 ST",
+    "E": "C3 C7 CA D2 D8 DQ H2 H4 HK S7 S9 SA SQ",
+    "S": "C5 C9 CJ CK D4 H6 H8 HJ HQ HT S3 S4 SJ",
+    "W": "C4 C8 CQ CT D3 D6 D7 D9 DK HA S2 S6 SK"
+   },
+   "declarer": "E",
+   "trump": "D",
+   "needed": 11
+  },
+  {
+   "hands": {
+    "N": "CJ CQ CT D5 D7 D9 DJ H3 H9 S6 S7 S9 SJ",
+    "E": "C2 C3 C6 C7 CA D8 DA DK DQ H4 H5 S5 SK",
+    "S": "C4 C8 CK D2 DT H8 HJ HK HQ HT S3 S8 SA",
+    "W": "C5 C9 D3 D4 D6 H2 H6 H7 HA S2 S4 SQ ST"
+   },
+   "declarer": "E",
+   "trump": "N",
+   "needed": 7
+  },
+  {
+   "hands": {
+    "N": "C3 C9 CJ CK D3 D4 D5 D6 D8 H2 H4 HJ S6",
+    "E": "C2 C4 C6 C8 CA CQ DJ DK HK HT S2 S3 S4",
+    "S": "CT DT H6 H7 H8 H9 HA S5 S7 S8 SJ SK SQ",
+    "W": "C5 C7 D2 D7 D9 DA DQ H3 H5 HQ S9 SA ST"
+   },
+   "declarer": "E",
+   "trump": "C",
+   "needed": 11
+  },
+  {
+   "hands": {
+    "N": "C3 C4 C5 C8 D4 DT H4 H5 H6 H8 S4 S5 S8",
+    "E": "C6 C7 C9 CQ D2 DA DJ H2 H3 HA HK S3 S6",
+    "S": "C2 CA CK D5 D6 D7 H7 HJ S7 S9 SJ SK SQ",
+    "W": "CJ CT D3 D8 D9 DK DQ H9 HQ HT S2 SA ST"
+   },
+   "declarer": "E",
+   "trump": "D",
+   "needed": 11
+  }
+ ],
+ "5.2": [
+  {
+   "hands": {
+    "N": "C2 C3 C6 CA CJ D3 D7 H2 H3 HJ HQ S7 S8",
+    "E": "C7 CT D4 D9 DA DJ DQ H4 H5 H7 S2 SA SK",
+    "S": "C4 C9 CQ D2 D5 D6 DK H6 H8 S3 S4 S6 SQ",
+    "W": "C5 C8 CK D8 DT H9 HA HK HT S5 S9 SJ ST"
+   },
+   "declarer": "E",
+   "trump": "N",
+   "needed": 9
+  },
+  {
+   "hands": {
+    "N": "C7 C9 D2 D6 D7 D9 DJ H2 H3 H4 H5 S6 SA",
+    "E": "C2 C4 C6 CA CQ DA DK H6 H7 HJ S2 S7 SJ",
+    "S": "C3 C5 C8 CT D3 DT H9 HK HQ S4 SK SQ ST",
+    "W": "CJ CK D4 D5 D8 DQ H8 HA HT S3 S5 S8 S9"
+   },
+   "declarer": "E",
+   "trump": "N",
+   "needed": 9
+  },
+  {
+   "hands": {
+    "N": "CJ D3 D4 D8 DA H3 H5 H6 H9 HT S5 SJ ST",
+    "E": "C3 C8 C9 CA CK CQ D6 DK DT H7 H8 HJ SQ",
+    "S": "C2 C5 C6 D2 D9 DQ HA S2 S3 S4 S6 S7 S9",
+    "W": "C4 C7 CT D5 D7 DJ H2 H4 HK HQ S8 SA SK"
+   },
+   "declarer": "E",
+   "trump": "C",
+   "needed": 11
+  },
+  {
+   "hands": {
+    "N": "C5 C7 D4 DK DQ H6 HA HK S4 S6 S7 S8 ST",
+    "E": "C8 C9 CK CQ D3 DA DT H2 H7 HJ S5 SA SK",
+    "S": "C2 C4 C6 CT D5 D6 D9 DJ H3 H4 HQ S2 S9",
+    "W": "C3 CA CJ D2 D7 D8 H5 H8 H9 HT S3 SJ SQ"
+   },
+   "declarer": "E",
+   "trump": "N",
+   "needed": 9
+  }
+ ],
+ "5.3": [
+  {
+   "hands": {
+    "N": "C4 C5 C7 C8 D7 H6 H9 HJ HK S4 S9 SK ST",
+    "E": "C2 C9 CK CT D2 D3 D5 DA DQ H2 H5 S8 SQ",
+    "S": "C6 CA CQ D4 D6 D8 DK DT H4 HT S2 S3 SJ",
+    "W": "C3 CJ D9 DJ H3 H7 H8 HA HQ S5 S6 S7 SA"
+   },
+   "declarer": "W",
+   "trump": "N",
+   "needed": 7
+  },
+  {
+   "hands": {
+    "N": "C8 CA D4 D6 D8 DJ H5 H6 H9 HK HT SJ SQ",
+    "E": "C3 CK CT D2 D3 D9 DA H2 H3 H8 S2 S7 SA",
+    "S": "C2 C6 C7 CJ D5 DT H4 H7 HQ S3 S6 S8 S9",
+    "W": "C4 C5 C9 CQ D7 DK DQ HA HJ S4 S5 SK ST"
+   },
+   "declarer": "W",
+   "trump": "N",
+   "needed": 9
+  },
+  {
+   "hands": {
+    "N": "C9 D8 D9 DJ DK DT H7 H8 HQ HT S5 S6 SQ",
+    "E": "C3 CA D3 D6 D7 H2 H3 HJ HK S2 S7 S9 SA",
+    "S": "C4 C5 C6 C7 CT D4 D5 DQ H4 HA S3 S8 ST",
+    "W": "C2 C8 CJ CK CQ D2 DA H5 H6 H9 S4 SJ SK"
+   },
+   "declarer": "W",
+   "trump": "N",
+   "needed": 9
+  },
+  {
+   "hands": {
+    "N": "C4 C6 C8 CQ CT DJ DQ DT H3 HK HQ S8 ST",
+    "E": "C2 C3 D4 D6 D9 DK H4 H7 HT S4 SJ SK SQ",
+    "S": "C5 CA D2 D5 H2 H5 H8 H9 S2 S3 S5 S7 S9",
+    "W": "C7 C9 CJ CK D3 D7 D8 DA H6 HA HJ S6 SA"
+   },
+   "declarer": "W",
+   "trump": "D",
+   "needed": 11
+  }
+ ],
+ "5.4": [
+  {
+   "hands": {
+    "N": "C8 CJ CT D8 D9 H4 H5 H8 H9 HT S4 S5 ST",
+    "E": "C3 C7 CA D4 D5 D7 H3 HQ S2 S7 S8 SK SQ",
+    "S": "C2 C4 D2 DJ DQ DT H6 HA HJ S3 S6 S9 SA",
+    "W": "C5 C6 C9 CK CQ D3 D6 DA DK H2 H7 HK SJ"
+   },
+   "declarer": "W",
+   "trump": "C",
+   "needed": 11
+  },
+  {
+   "hands": {
+    "N": "C4 CJ D9 DJ DK DQ H5 H8 HT S2 S4 S5 S6",
+    "E": "C5 C6 C7 CT D2 D4 D8 H7 H9 HQ S3 SJ ST",
+    "S": "C3 C9 CQ D3 D5 D7 H2 H3 H4 HK S7 S9 SQ",
+    "W": "C2 C8 CA CK D6 DA DT H6 HA HJ S8 SA SK"
+   },
+   "declarer": "W",
+   "trump": "C",
+   "needed": 11
+  },
+  {
+   "hands": {
+    "N": "C6 CJ CT D6 D9 DA DQ H5 S2 S5 S8 S9 SK",
+    "E": "C2 C3 C5 C7 CK CQ D2 D4 DJ H3 HT S7 SQ",
+    "S": "C4 C9 D3 D7 D8 DK H2 H4 H8 H9 HJ S4 ST",
+    "W": "C8 CA D5 DT H6 H7 HA HK HQ S3 S6 SA SJ"
+   },
+   "declarer": "W",
+   "trump": "C",
+   "needed": 11
+  },
+  {
+   "hands": {
+    "N": "C8 D5 D6 DJ DT H3 H4 H8 HT S5 SA SJ ST",
+    "E": "C4 C9 CT D2 D7 DK H6 HA HK HQ S2 S6 S9",
+    "S": "C2 C7 CA CQ D3 D4 H2 H5 HJ S3 S4 S7 SQ",
+    "W": "C3 C5 C6 CJ CK D8 D9 DA DQ H7 H9 S8 SK"
+   },
+   "declarer": "W",
+   "trump": "C",
+   "needed": 11
+  }
+ ]
+}

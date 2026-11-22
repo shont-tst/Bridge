@@ -1,0 +1,55 @@
+{
+ "deals_per_level": 600,
+ "levels": {
+  "1": {
+   "declaring": 3.946,
+   "defending": 1.76,
+   "hands": 592
+  },
+  "2": {
+   "declaring": 2.956,
+   "defending": 1.367,
+   "hands": 592
+  },
+  "3": {
+   "declaring": 2.236,
+   "defending": 1.065,
+   "hands": 592
+  },
+  "4": {
+   "declaring": 1.801,
+   "defending": 0.805,
+   "hands": 599
+  },
+  "5": {
+   "declaring": 1.496,
+   "defending": 0.678,
+   "hands": 597
+  },
+  "6": {
+   "declaring": 1.126,
+   "defending": 0.572,
+   "hands": 595
+  },
+  "7": {
+   "declaring": 0.856,
+   "defending": 0.481,
+   "hands": 591
+  },
+  "8": {
+   "declaring": 0.618,
+   "defending": 0.472,
+   "hands": 597
+  },
+  "9": {
+   "declaring": 0.518,
+   "defending": 0.389,
+   "hands": 595
+  },
+  "10": {
+   "declaring": 0.406,
+   "defending": 0.293,
+   "hands": 596
+  }
+ }
+}

@@ -1,0 +1,8 @@
+# Tools for testing and scanning, never installed in the live app. server/requirements-dev.txt pins the exact versions
+# (these tools, what they pull in, and the app's own libraries at the versions in requirements.txt), made with:
+# pip-compile --strip-extras --no-emit-index-url -o requirements-dev.txt requirements-dev.in
+-r requirements.in
+-c requirements.txt
+pytest>=9.2.0
+httpx>=0.28.1
+pip-audit>=2.10.1

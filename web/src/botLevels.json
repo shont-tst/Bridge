@@ -1,0 +1,42 @@
+{
+ "1": {
+  "declaring": 3.95,
+  "defending": 1.76
+ },
+ "2": {
+  "declaring": 2.96,
+  "defending": 1.37
+ },
+ "3": {
+  "declaring": 2.24,
+  "defending": 1.06
+ },
+ "4": {
+  "declaring": 1.8,
+  "defending": 0.81
+ },
+ "5": {
+  "declaring": 1.5,
+  "defending": 0.68
+ },
+ "6": {
+  "declaring": 1.13,
+  "defending": 0.57
+ },
+ "7": {
+  "declaring": 0.86,
+  "defending": 0.48
+ },
+ "8": {
+  "declaring": 0.62,
+  "defending": 0.47
+ },
+ "9": {
+  "declaring": 0.52,
+  "defending": 0.39
+ },
+ "10": {
+  "declaring": 0.41,
+  "defending": 0.29
+ }
+}

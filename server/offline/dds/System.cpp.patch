@@ -1,0 +1,16 @@
+--- System.cpp.orig	2026-11-20 21:50:19.289988060 +0000
++++ System.cpp	2026-11-20 21:50:19.311906673 +0000
+@@ -222,6 +222,13 @@
+   return;
+ #endif
+ 
++#ifdef __EMSCRIPTEN__
++  // In the browser: one thread, with room for its large transposition table.
++  kilobytesFree = 512 * 1024;
++  ncores = 1;
++  return;
++#endif
++
+ #ifdef __linux__
+   // Use half of the physical memory
+   long pages = sysconf (_SC_PHYS_PAGES);

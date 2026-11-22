@@ -1,0 +1,44 @@
+# Dependabot opens pull requests for security fixes only (that is switched on in the repository's settings, with
+# grouped security updates). Ordinary version updates are not opened as pull requests (open-pull-requests-limit: 0):
+# the monthly update round, a scheduled Claude task, brings everything to its newest release within the same major
+# version in one tested publish, which saves Actions minutes. The entries below stay so Dependabot knows where the
+# libraries are, and so the limit can be raised again.
+# server/requirements.txt is made from server/requirements.in by pip-compile (and requirements-dev.txt from
+# requirements-dev.in).
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /server
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      python:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    ignore:  # new major versions of the build tools need code changes, so they are taken on by hand
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      web:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    ignore:  # only patch releases (3.13.18 -> 3.13.19); a new Python or Node is a deliberate change, made by hand
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      actions:
+        patterns: ["*"]

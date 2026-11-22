@@ -1,0 +1,17 @@
+[project]
+name = "bridge-trainer"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.162.2",
+  "uvicorn[standard]>=0.29",
+  "endplay>=0.5.12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9.2.0", "httpx>=0.28.1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["bot_claims: let bots claim in this test"]

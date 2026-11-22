@@ -1,0 +1,11 @@
+# The server's libraries, by the oldest version that works. server/requirements.txt pins the exact versions that are
+# installed, made from this file with: pip-compile --strip-extras --no-emit-index-url -o requirements.txt requirements.in
+fastapi>=0.162.2
+uvicorn[standard]>=0.29
+endplay>=0.5.12
+webauthn>=2.5
+pywebpush>=2.0
+azure-data-tables>=12.5
+azure-identity>=1.17
+azure-storage-blob>=12.31.1
+tzdata>=2026.6

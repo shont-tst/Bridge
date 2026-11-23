@@ -1263,8 +1263,10 @@ class Rooms:
 
     async def quit(self, code: str, token: str) -> None:
         """A player quits a table for good (Leave, then Quit table). With only bots for company the table ends, on
-        every device. With other people it goes on for them: the bot takes the seat. Either way the table doesn't come
-        back to this player, here or from a copy on a phone (by its seat)."""
+        every device. With other people it goes on for them: the bot takes the seat, and the player doesn't stay on as
+        someone watching, so a table left to one person and the bots can go to that person's phone again
+        (Room.carriable). Either way the table doesn't come back to this player, here or from a copy on a phone (by its
+        seat)."""
         room = await self.aget(code)
         seat = room.person(token)[0] if room else None
         if room and seat is not None:
@@ -1273,6 +1275,7 @@ class Rooms:
             else:
                 async with room.lock:
                     room.stand(token)
+                    room.watchers.pop(token, None)
                 await room.broadcast()
         for user, was in list(self.parked.items()):
             if was["token"] == token:

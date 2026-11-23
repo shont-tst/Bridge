@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { SEAT_NAME, SUIT_SYMBOL, callLabel, cardLabel, compass, isRed, partnerOf, sameSide, signed } from "../cards";
 import { loadToken, type Account, type FriendsView } from "../account";
 import { REMEMBERED, reducedMotion, usePrefs } from "../prefs";
@@ -11,6 +11,7 @@ import BidTiles from "./BidTiles";
 import DealAnimation from "./DealAnimation";
 import CardWhy from "./CardWhy";
 import Dummy from "./Dummy";
+import { useDummyFit } from "./useDummyFit";
 import { HintsInfo } from "./Explain";
 import Fan from "./Fan";
 import Feedback from "./Feedback";
@@ -54,7 +55,9 @@ interface Props {
   inviting?: boolean; // the lobby's Invite for a friend with notifications off: open Invite to game to send a link
   coachOff?: boolean; // a table the AI coach can't see now (on this phone with no internet, or not signed in)
   onLocalInvite?: () => Promise<boolean>; // Invite at a bot table on this phone: true once it moved to the server
-  where?: "local" | "wifi"; // the table is on this phone, or on a partner's phone over the Wi-Fi (offline.ts, wifi.ts)
+  // the table is on this phone, or on a partner's phone over the Wi-Fi (offline.ts, wifi.ts), or a bot table of this
+  // phone's kept on the server for an invite (App.tsx)
+  where?: "local" | "wifi" | "invite";
 }
 
 
@@ -137,6 +140,9 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
   const wide = useMedia("(min-width: 820px) and (min-height: 600px)");
   const short = useMedia("(max-height: 900px)");
   const holdTimer = useRef<number | undefined>(undefined);
+  const tblRef = useRef<HTMLDivElement>(null);
+  const topDummy = (wide ? (short ? SIZES.wideShort : SIZES.wide) : SIZES.phone).dummy;
+  const dummyFit = useDummyFit(tblRef, topDummy[0], topDummy[1]); // a long suit in dummy stays clear of the trick
   const tricksSeen = useRef<{ board: number; n: number }>({ board: 0, n: 0 });
   const lastPlaying = useRef<TableState | null>(null);
 
@@ -176,8 +182,8 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
     setHolding(false);
   };
 
-  // deal the cards around the table at the start of each board
-  useEffect(() => {
+  // deal the cards around the table at the start of each board (before the first paint, so the hand never shows first)
+  useLayoutEffect(() => {
     if (!t || !state || t.phase !== "bidding" || t.auction.length > 0) return;
     if (!prefs.dealAnimation || reducedMotion() || dealtBefore(`${state.room}/${t.board}`)) return;
     setDealing(true);
@@ -550,8 +556,8 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
               playable={playable(s)}
               onPlay={myTurnToPlay ? play : undefined}
               hinted={hintedCard}
-              w={where === "top" ? size.dummy[0] : size.sideDummy[0]}
-              h={where === "top" ? size.dummy[1] : size.sideDummy[1]}
+              w={where === "top" ? Math.round(size.dummy[0] * (dummyFit.scale ?? 1)) : size.sideDummy[0]}
+              h={where === "top" ? Math.round(size.dummy[1] * (dummyFit.scale ?? 1)) : size.sideDummy[1]}
               layout={where !== "top" ? "side" : wide ? "columns" : "row"}
             />
             {where === "top" && label(s, where, true)}
@@ -805,8 +811,8 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
           }
         />
       ) : (
-        <div className={`play-layout ${bidding ? "bidding" : "playing"}`}>
-          <div className={`tbl ${view.phase === "playing" && view.dummy ? `dummy-${at[view.dummy]}` : ""}`}>
+        <div className={`play-layout ${bidding ? "bidding" : "playing"} ${dealing ? "dealing" : ""}`}>
+          <div ref={tblRef} className={`tbl ${view.phase === "playing" && view.dummy ? `dummy-${at[view.dummy]}` : ""}`}>
             {otherSeat(pos.top, "top")}
             {otherSeat(pos.left, "left")}
             {otherSeat(pos.right, "right")}
@@ -817,6 +823,7 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
                 trick={shown}
                 me={me}
                 banner={banner}
+                top={dummyFit.top}
                 onTap={showingHeld ? endHold : undefined}
                 explained={view.card_why}
                 onCard={(card, seat) => setOpenCard(openCard?.card === card ? null : { card, seat })}

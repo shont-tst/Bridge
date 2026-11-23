@@ -239,6 +239,7 @@ def test_quitting_a_bot_table_ends_it_everywhere_and_a_table_with_people_goes_on
     _, theirs = shared.join("Kim", None, None, "u2")
     asyncio.run(rooms.quit(shared.code, mine))
     assert shared.code in rooms.rooms and shared.person(mine)[0] is None and shared.person(theirs)[0] is not None
+    assert shared.person(mine)[1] is None and shared.carriable()  # not left watching: the table can go to Kim's phone
     assert asyncio.run(rooms.table_for("u1")) is None
     # a table only on a phone (never here) ends by its seat, and nobody else's "HOME" table does
     asyncio.run(rooms.quit("HOME", "phone-seat"))

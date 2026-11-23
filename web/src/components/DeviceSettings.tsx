@@ -38,8 +38,9 @@ export default function DeviceSettings({ prefs, onPrefs }: { prefs: Prefs; onPre
 }
 
 /** Where bot tables are played, in the ☰ menu: on this phone (the default, and the only way with no internet) or on
- * the server. A change applies at the end of the board (App.tsx moves the table). */
-export function BotsHere() {
+ * the server. A change applies at the end of the board (App.tsx moves the table). `server` says why this table is on
+ * the server for now although the box is ticked: another person is at it, or an invite is out. */
+export function BotsHere({ server }: { server?: string }) {
   const [here, setHere] = useState(botsHere);
   const [ready, setReady] = useState(offlineReady);
   const [got, setGot] = useState(0);
@@ -70,9 +71,11 @@ export function BotsHere() {
           <span className="muted">
             {!here
               ? `The server plays the bots. This ${device} takes over if the internet drops.`
-              : ready
-                ? `Bots play on this ${device}, with or without internet.`
-                : `Getting ready to play without internet… ${Math.round(got * 100)}%`}
+              : server && ready
+                ? server
+                : ready
+                  ? `Bots play on this ${device}, with or without internet.`
+                  : `Getting ready to play without internet… ${Math.round(got * 100)}%`}
           </span>
         </span>
       </label>

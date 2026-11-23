@@ -170,6 +170,13 @@ def card_reasons(choice, declaring: bool, level: int, trump: str = "N") -> dict:
     return out
 
 
+def auction_shown(engine: BiddingEngine, dealer: str, calls: list[str]) -> list[dict]:
+    """An auction as the app shows it: each call with what it meant in the system."""
+    auction = Auction(dealer, list(calls))
+    return [{"seat": s, "call": c, "meaning": Table._meaning_dict(engine.explain(auction, i))}
+            for i, (s, c) in enumerate(auction.with_seats())]
+
+
 class Table:
     bot_claims = True  # tests that play whole hands through turn it off, so a claim doesn't stop them
 

@@ -68,75 +68,70 @@ export default function ResultPanel({ result, me, nameOf, onNext, canNext, nextL
           {result.claimed_tricks === 1 ? "the last trick." : result.claimed_tricks ? `the last ${result.claimed_tricks} tricks.` : "the rest of the tricks."}
         </div>
       )}
-      {rubber ? (
-        // rubber: one score on screen (the pad's); par is said in words, with how this board compares, both
-        // counting a game as par does and the part scores below the line towards it
-        <div className="muted">
-          Par, the result if both sides bid and played perfectly:{" "}
-          {parCodes?.length ? <SuitText text={parLabel(parCodes)} /> : "pass it out"}
-          {partNote(ours, theirs, watching)}.{" "}
-          <b>{parVerdict(sign * rubber.score_ns - parMine, watching)}</b>
-        </div>
-      ) : dd?.par_score_ns !== undefined && (
-        <div className="muted">
-          Par, the result if both sides bid and played perfectly: {signed(parMine)} {whose}
-          {parCodes?.length ? <SuitText text={` (${parLabel(parCodes)})`} /> : ""}
-        </div>
-      )}
-      <div className="all-hands">
-        {(["top", "left", "right", "bottom"] as const).map((where) => at[where]).map((s, i) => (
-          <div key={s} className={`at-${["top", "left", "right", "bottom"][i]}`}>
-            <div className="seat-label">{SEAT_NAME[s]}</div>
-            <Hand cards={result.hands[s].split(".").flatMap((p, i) => [...p].map((r) => "SHDC"[i] + r))} compact />
-          </div>
-        ))}
-      </div>
-      {auction && (
-        <details className="whats-new result-auction">
-          <summary>Auction</summary>
-          {auction}
-        </details>
-      )}
-      {play && (
-        <details className="whats-new result-auction">
-          <summary>Play</summary>
-          {play}
-        </details>
-      )}
-      {dd?.tricks && (
-        <>
-        <h4 className="dd-title">Tricks with all cards seen</h4>
-        <p className="muted small dd-help">
-          How many tricks each player would take as declarer in each suit, if everyone played perfectly with all the cards face up.
-          {c && <SuitText text={` The contract played, ${contractLabel(c).replace(/ by .*/, "")} by ${SEAT_NAME[c.declarer]}, is ringed: it needed ${c.level + 6}.`} />}
-        </p>
-        <table className="dd">
-          <thead>
-            <tr>
-              <th>Declarer</th>
-              {STRAINS.map((s) => (
-                <th key={s} className={`s-${s} ${isRed(s) ? "red" : ""}`}>
-                  <Suit s={s} />
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {(["N", "S", "E", "W"] as Seat[]).map((seat) => (
-              <tr key={seat}>
-                <td>{SEAT_NAME[seat]}</td>
-                {STRAINS.map((s) => (
-                  <td key={s} className={c && c.declarer === seat && c.strain === s ? "played" : ""}>
-                    {dd.tricks![s][seat]}
-                  </td>
-                ))}
-              </tr>
+      <ReviewPanel
+        result={result}
+        me={me}
+        nameOf={nameOf}
+        help={help}
+        watching={watching}
+        par={rubber ? (
+          // rubber: par in words, with how this board compares, both counting a game as par does and the part
+          // scores below the line towards it
+          <>
+            {parCodes?.length ? <SuitText text={parLabel(parCodes)} /> : "Pass it out"}
+            {partNote(ours, theirs, watching)}. <b>{parVerdict(sign * rubber.score_ns - parMine, watching)}</b>
+          </>
+        ) : dd?.par_score_ns !== undefined ? (
+          <>
+            {signed(parMine)} {whose}
+            {parCodes?.length ? <SuitText text={` (${parLabel(parCodes)})`} /> : ""}
+          </>
+        ) : undefined}
+        hands={
+          <div className="all-hands">
+            {(["top", "left", "right", "bottom"] as const).map((where) => at[where]).map((s, i) => (
+              <div key={s} className={`at-${["top", "left", "right", "bottom"][i]}`}>
+                <div className="seat-label">{SEAT_NAME[s]}</div>
+                <Hand cards={result.hands[s].split(".").flatMap((p, i) => [...p].map((r) => "SHDC"[i] + r))} compact />
+              </div>
             ))}
-          </tbody>
-        </table>
-        </>
-      )}
-      <ReviewPanel result={result} me={me} nameOf={nameOf} help={help} />
+          </div>
+        }
+        auction={auction}
+        play={play}
+        dd={dd?.tricks && (
+          <>
+            <p className="muted small dd-help">
+              How many tricks each player would take as declarer in each suit, if everyone played perfectly with all the cards face up.
+              {c && <SuitText text={` The contract played, ${contractLabel(c).replace(/ by .*/, "")} by ${SEAT_NAME[c.declarer]}, is ringed: it needed ${c.level + 6}.`} />}
+            </p>
+            <table className="dd">
+              <thead>
+                <tr>
+                  <th>Declarer</th>
+                  {STRAINS.map((s) => (
+                    <th key={s} className={`s-${s} ${isRed(s) ? "red" : ""}`}>
+                      <Suit s={s} />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(["N", "S", "E", "W"] as Seat[]).map((seat) => (
+                  <tr key={seat}>
+                    <td>{SEAT_NAME[seat]}</td>
+                    {STRAINS.map((s) => (
+                      <td key={s} className={c && c.declarer === seat && c.strain === s ? "played" : ""}>
+                        {dd.tricks![s][seat]}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      />
       {onNext && <div className="result-actions">
         {onScore && <button onClick={onScore}>Score</button>}
         <button className="primary" onClick={onNext} disabled={!canNext}>

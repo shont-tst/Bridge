@@ -98,9 +98,28 @@ export interface BidReview {
     avg?: { points_ns: number; deals: number; helped: number; hurt: number } | null } | null;
 }
 
+/** The same deal played again with a level 10 bot in a person's seat and the table's bots elsewhere (server
+ * game/second.py), scored against the person's result in IMPs. Scores are for that person's side. */
+export interface SecondTable {
+  seat: Seat;
+  level: number;
+  auction: AuctionEntry[];
+  contract: Contract | null;
+  tricks: number;
+  play: [Seat, string][];
+  claimed?: number; // the tricks left when a bot claimed them
+  score: number;
+  table_score: number;
+  imps: number;
+  bidding_imps?: number; // the IMPs from the two contracts, both played with every card seen
+  play_imps?: number; // the rest
+}
+
 export interface BoardReview {
   bidding?: BidReview[];
   play?: { cards: CardReview[]; dd_declarer_tricks: number; lost_by: Record<Seat, number> } | null;
+  second?: Partial<Record<Seat, SecondTable>>; // by the people's seats
+  second_pending?: boolean;
   odds_pending?: boolean;
   odds_error?: string;
   error?: string;

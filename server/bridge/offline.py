@@ -16,7 +16,8 @@ PACKAGE = SERVER / "bridge"
 EXTRA = SERVER / "offline"
 # only the game: nothing that holds accounts, storage, admin or the AI connector goes onto phones
 LEAVE_OUT = {"app.py", "accounts.py", "admin.py", "backups.py", "connector.py", "coach.py", "feedback.py", "push.py",
-             "social.py", "limits.py", "stats.py", "trends.py", "patterns.py", "offline.py"}
+             "social.py", "limits.py", "stats.py", "trends.py", "patterns.py", "offline.py",
+             "backfill.py"}
 
 
 def _files() -> list[tuple[str, Path]]:

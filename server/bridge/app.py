@@ -24,6 +24,8 @@ from .accounts import Accounts, AuthError, origin_for
 from .bidding.conventions import BY_ID, convention_list, make_engine, requirements
 from .bidding.lessons import LEADS, LEADS_PAGE, LESSONS, SIGNALS, SIGNALS_PAGE, examples_for, lesson_list
 from .game.room import REMEMBERED, Room, Rooms, TableClosed
+from .game.second import fill_split
+from .game.table import auction_shown
 from .limits import Limiter, RateLimit, visitor
 from . import solver
 from .tutorial import card_tricks as tutorial_card_tricks
@@ -34,7 +36,7 @@ from .push import Push
 from .social import Social
 from .stats import history_from_facts, stats_from_facts
 from .feedback import Feedback
-from . import offline, site
+from . import backfill, offline, site
 from .connector import Connector, OAuthError
 from .store import open_store
 
@@ -67,8 +69,12 @@ async def lifespan(_app):
         pass
     task = asyncio.create_task(backups.run()) if store.durable else None  # weekly, of storage that lasts
     sampler = asyncio.create_task(load.run(table_counts))
+    # saved boards from before the second table get one, once, in the background (backfill.py)
+    second = asyncio.create_task(backfill.run(accounts)) if os.environ.get("BRIDGE_SECOND_BACKFILL", "1") != "0" else None
     yield
     sampler.cancel()
+    if second:
+        second.cancel()
     if task:
         task.cancel()
     rooms.save_all()  # a deploy stops this copy of the server: save every table so the next copy carries on
@@ -146,9 +152,10 @@ class StorageCheck:
             due = time.time() - self.at >= self.EVERY
             if due:
                 self.at = time.time()
+        answer = "checking" if self.ok is None else "ok" if self.ok else "down"  # before a new ask can change it
         if due:
             threading.Thread(target=self._ask, daemon=True).start()
-        return "checking" if self.ok is None else "ok" if self.ok else "down"
+        return answer
 
     def _ask(self) -> None:
         try:
@@ -501,9 +508,11 @@ async def tutorial_hint(body: dict = Body(...)):
 
 
 @app.get("/api/me/stats")
-def stats(days: int = 30, authorization: str | None = Header(None)):
+def stats(days: int = 30, hints: bool = False, undo: bool = False, coach: bool = False,
+          authorization: str | None = Header(None)):
+    """My stats; hints, undo and coach leave out the help the player ticked (stats.leave_out)."""
     user = _signed_in(authorization)
-    return stats_from_facts(accounts.facts(user["id"]), days or None)
+    return stats_from_facts(accounts.facts(user["id"]), days or None, hints, undo, coach)
 
 
 @app.get("/api/me/boards")
@@ -520,6 +529,15 @@ def board(key: str, authorization: str | None = Header(None)):
     rec = accounts.board(user["id"], key)
     if not rec:
         raise HTTPException(404, "no such board")
+    fill_split(rec)  # second tables played before the bidding and play shares were kept
+    # the auction with each call's meaning, as at the table, for the review's Auction pull-down
+    if rec.get("calls") and rec.get("dealer"):
+        try:
+            engine = make_engine(set(rec["conventions"]) if rec.get("conventions") is not None
+                                 else {c.id for c in BY_ID.values() if c.default_on})
+            rec = {**rec, "auction": auction_shown(engine, rec["dealer"], rec["calls"])}
+        except Exception as exc:  # an old board the engine can't read: the review shows without it
+            log.warning("could not show the auction of board %s: %s", key, exc)
     return rec
 
 

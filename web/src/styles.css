@@ -356,7 +356,6 @@ a { color: var(--gold); text-underline-offset: 3px; }
 .all-hands .at-bottom { grid-area: bottom; justify-self: center; }
 .all-hands .seat-label { color: var(--muted); font-size: .8rem; }
 /* the review's deal: West and East beside North and South, with a line between North and South, so more of the review shows */
-.result:has(> .all-hands) { gap: 4px; }
 .result .all-hands { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "left top right" "left bottom right"; gap: 0 8px; align-items: center; }
 .result .all-hands .at-top, .result .all-hands .at-bottom { justify-self: start; }
 .result .all-hands .at-top { margin-bottom: 18px; }
@@ -374,13 +373,31 @@ a { color: var(--gold); text-underline-offset: 3px; }
 .dd { border-collapse: collapse; font-size: .85rem; }
 .dd td, .dd th { border: 1px solid #ddd; padding: 2px 8px; text-align: center; }
 
-.review { align-self: stretch; text-align: left; border-top: 1px solid #e3e3e3; padding-top: 6px; }
+.review { align-self: stretch; text-align: left; display: flex; flex-direction: column; gap: 6px; }
 .review h3 { margin: 4px 0; }
 .review h4 { margin: 10px 0 4px; }
 .review p { margin: 4px 0; }
 .review-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .review-head label { display: flex; gap: 4px; align-items: center; color: var(--muted); }
 .review-head input { width: auto; }
+.second-table .imps { font-weight: 700; white-space: nowrap; background: none; border: 0; padding: 0; font: inherit; font-weight: 700; text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
+.second-table h4 { font-size: .9rem; }
+/* the review's summary: one line each for par, your play, your bidding and the second table; a tap opens its pull-down */
+.review-lines { border-collapse: collapse; width: 100%; font-size: .92rem; }
+.review-lines th { text-align: left; font-weight: 600; color: var(--muted); white-space: nowrap; padding: 6px 10px 6px 0; vertical-align: top; width: 1%; }
+.review-lines td { padding: 6px 0; vertical-align: top; }
+.review-lines tr + tr { border-top: 1px solid #ebe8df; }
+.review-lines tr:has(.go) { cursor: pointer; }
+.review-lines .go { color: #8a6514; font-weight: 700; font-size: 1.2rem; line-height: 1; text-align: right; width: 1%; padding-left: 6px; }
+/* the review's parts in full, one pull-down each, with a count or the IMPs at the right */
+.review-pulls { display: flex; flex-direction: column; margin-top: 4px; }
+.review .review-pulls .review-pull { margin: 0; border-top: 1px solid #ebe8df; padding: 9px 0; scroll-margin-top: 8px; }
+.review .review-pull:last-child { border-bottom: 1px solid #ebe8df; }
+.review-pull > summary { display: list-item; }
+.review-pull .pull-note { float: right; color: var(--ink); font-weight: 600; }
+.review-pull .pull-body { padding-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.review-pull .pull-check { align-self: flex-end; display: flex; gap: 4px; align-items: center; color: var(--muted); }
+.review-pull .pull-check input { width: auto; }
 .review-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: .92rem; }
 .review-list li.me, .lost-summary tr.me { font-weight: 600; }
 .lost-summary { border-collapse: collapse; font-size: .9rem; }
@@ -542,7 +559,6 @@ html.large-text { font-size: 18.5px; }
 
 /* review odds and the all-cards-seen table */
 .review .odds { font-size: .88rem; margin-top: 2px; color: #3c4a42; }
-.dd-title { margin: 6px 0 0; }
 .dd-help { margin: 0 0 4px; }
 .dd td.played { outline: 2px solid var(--gold); outline-offset: -2px; font-weight: 800; background: #fdf3d6; }
 
@@ -629,6 +645,30 @@ button.danger { background: var(--red); border-color: var(--red); color: #fff; f
 .spark .par-line { stroke: rgba(255, 255, 255, .3); stroke-dasharray: 3 4; }
 .spark .trend-line { fill: none; stroke: var(--gold); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .spark .trend-dot { fill: var(--gold); }
+/* My stats: par and the second table side by side, then a section for each part of the game */
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tile { display: grid; gap: 2px; align-content: start; padding: 9px 11px; border-radius: 12px; background: rgba(255, 255, 255, .07); min-width: 0; }
+.tile .k { font-size: .66rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; opacity: .8; }
+.tile .v { font-weight: 800; font-size: 1.3rem; font-variant-numeric: tabular-nums; }
+.tile .v.up { color: var(--green-on-felt); }
+.tile .d { font-size: .74rem; opacity: .78; line-height: 1.3; }
+.tile .spark { height: 30px; }
+.part-head { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
+.part-head .k { opacity: .8; }
+.part-head .v small { font-size: .7rem; font-weight: 600; opacity: .8; }
+.stat .v.low { color: #ffcf7a; }
+.stat .row { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 8px; font-size: .92rem; padding: 2px 0; }
+.stat .row b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stat .tip { margin: 6px 0 0; font-size: .82rem; line-height: 1.35; padding: 7px 10px; border-radius: 10px; background: rgba(232, 182, 74, .16); }
+.stat .tip a { color: var(--gold); font-weight: 700; }
+.ticks { grid-column: 1 / -1; display: grid; gap: 2px; margin-top: 4px; }
+.ticks label { display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 8px; padding: 5px 0; font-size: .95rem; }
+.ticks input { width: 20px; height: 20px; margin: 0; accent-color: var(--gold); }
+.ticks .n { font-weight: 800; font-variant-numeric: tabular-nums; }
+.ticks .n small { font-weight: 600; opacity: .7; font-size: .75rem; }
+.excluded { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: .85rem; padding: 7px 10px; border-radius: 10px; background: rgba(232, 182, 74, .16); }
+.excluded small { display: block; opacity: .8; font-size: .76rem; }
+.excluded .link { color: var(--gold); font-weight: 700; background: none; border: 0; padding: 0; white-space: nowrap; }
 .hist { display: flex; flex-direction: column; }
 .daygap { font-size: .7rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; opacity: .7; padding: 12px 0 4px; }
 .hrow {
@@ -778,7 +818,7 @@ button.danger { background: var(--red); border-color: var(--red); color: #fff; f
 .info-sheet .tag.mistake { background: #f7dcd9; color: #9b2a1e; }
 .info-sheet .tag.unlucky { background: #e6ebe8; color: #44524a; }
 .info-sheet .tag.helped { background: #d9eedb; color: #1f6a2a; }
-.bidnote .info-button { color: rgba(255, 255, 255, .75); }
+.bidnote .info-button, .stats-page .info-button { color: rgba(255, 255, 255, .75); }
 button.text-link { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .ai-coach-head { scroll-margin-top: 56px; }
 

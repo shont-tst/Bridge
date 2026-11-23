@@ -31,6 +31,7 @@ from ..solver import BOT, HINT, WARM, Job, job as solver_job
 from ..tutorial import bidding_deal
 from .analysis import dd_summary
 from .odds import MAX_CARDS as MAX_ODDS_CARDS, add_odds, odds_ahead
+from .second import add_split, second_table
 from .review import asked_marks, bidding_review, board_review, solve_undone, take_back_note, undone_review
 from .table import BIDDING, DONE, PLAYING, Table, card_hint
 
@@ -158,6 +159,7 @@ class Room:
         self._last_counted: dict[str, tuple] = {}  # the last decision each kind of help was counted for
         self.finished: list[tuple[str, dict]] = []  # boards to save to players' accounts: (user id, record)
         self._to_save: list[tuple[str, dict]] = []  # the last board's records, to save again once its odds are in
+        self._second_save: list[tuple[str, dict]] = []  # ... and again once its second table is in
         self.retracted: list[tuple[str, dict]] = []  # saved boards taken back by undo, to remove again
         self.rev = 0  # goes up with every change, so a saved copy can tell whether it is the latest
         self.on_change: Callable[["Room"], None] | None = None
@@ -531,6 +533,8 @@ class Room:
         rv = t.result.review or {}
         if rv.get("play") or any(b.get("outcome") for b in rv.get("bidding") or []):
             t.result.review["odds_pending"] = True  # filled in just after the result is shown
+        if self._second_seats(t) and isinstance(t.result.review, dict) and "error" not in t.result.review:
+            t.result.review["second_pending"] = True  # the second table plays once the odds are in (game/second.py)
         if self.settings.scoring == "rubber":
             self._rubber_before = copy.deepcopy(self.rubber)
             t.result.score_ns = self.rubber.record(t.board, t.contract, t.result.declarer_tricks, t.hands)
@@ -726,7 +730,7 @@ class Room:
         t.undo()
         if taken:
             self.undone.append(taken)
-        self._to_save = []
+        self._to_save, self._second_save = [], []
         # help asked for later decisions goes; help for the decision being made again stays (they saw it)
         self.asked = [a for a in self.asked if a[1] <= len(t.actions)]
         if was_done and self.history and self.history[-1]["board"] == t.board:
@@ -933,7 +937,7 @@ class Room:
     def kick_odds(self) -> None:
         t = self.table
         review = t.result.review if t and t.phase == DONE and t.result else None
-        if review and review.get("odds_pending") and (self._odds_task is None or self._odds_task.done()):
+        if review and (review.get("odds_pending") or review.get("second_pending")) and (self._odds_task is None or self._odds_task.done()):
             self._odds_task = asyncio.create_task(self._fill_odds(t, review))
 
     def kick_odds_ahead(self) -> None:
@@ -1017,6 +1021,7 @@ class Room:
         # the board went to players' accounts as soon as it ended: save it again now that its review is complete
         if t.result and self.history and self.history[-1].get("finished_at") == t.result.finished_at:
             self.finished.extend(self._to_save)
+            self._second_save = list(self._to_save)  # and once more when the second table is in
         self._to_save = []
 
     async def _fill_odds(self, t: Table, review: dict) -> None:
@@ -1027,6 +1032,39 @@ class Room:
         waited = time.time() - t.result.finished_at if t.result else None
         if waited is not None and 0 <= waited < 3600:  # for the Admin page's Load tab (not a board from before a restart)
             timings.record("review", waited)
+        await self.broadcast()
+        if review.get("second_pending"):
+            await self._second_tables(t, review)
+
+    def _second_seats(self, t: Table) -> list[str]:
+        """The people's seats that get a second table (game/second.py): not in Learn to play, whose hands aren't
+        saved, and only where the work can be done after the board without holding up the game (`ahead`)."""
+        if not self.ahead or self.settings.tutorial:
+            return []
+        return sorted(set(SEATS) - t.bot_seats)
+
+    async def _second_tables(self, t: Table, review: dict) -> None:
+        """Play the board again with the strongest bot in each person's seat, at the solver's lowest urgency, then
+        save the board again with it."""
+        loop = asyncio.get_running_loop()
+        below = (t.result.dd or {}).get("rubber", {}).get("below") if t.result else None
+        out = {}
+        for seat in self._second_seats(t):
+            try:
+                out[seat] = await loop.run_in_executor(
+                    None, second_table, self.engine, t.hands, t.dealer, t.vulnerability, t.score, seat,
+                    set(SEATS) - t.bot_seats, self.settings.difficulty, t.signals, t.leads, below, t.contract,
+                    t.result.declarer_tricks if t.result else 0, random.Random(self.rng.random()))
+                add_split(out[seat], t.contract, t.result.dd if t.result else None, t.vulnerability, below)
+            except Exception as exc:  # a bonus: the review goes without it
+                log.warning("could not play the second table: %s", exc)
+        if not (t.result and t.result.review is review):  # taken back with Undo meanwhile
+            return
+        if out:
+            review["second"] = out
+        review["second_pending"] = False
+        self.finished.extend(self._second_save)
+        self._second_save = []
         await self.broadcast()
 
     def _pause(self) -> float:

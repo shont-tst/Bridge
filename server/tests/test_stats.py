@@ -122,3 +122,34 @@ def test_off_system_calls_helped_or_cost_counts_only_calls_nobody_bid_after():
     assert (s["off_system_helped"], s["off_system_cost"], s["off_system_same"]) == (1, 1, 1)
     assert s["off_system_points"] == round((170 - 240) / 3, 2)
     assert summarize([board_facts(rec(key="k3"))])["off_system_points"] is None
+
+
+def test_excluding_hints_or_the_ai_coach_leaves_out_whole_boards():
+    from bridge.stats import stats_from_facts
+    hinted = rec(key="h", lost_me=1, hints=1, score_ns=170)
+    coached = rec(key="c", lost_me=1, score_ns=420)
+    coached["help"]["S"]["coach"] = 1
+    plain = rec(key="p", lost_me=0, score_ns=420)
+    facts = [board_facts(r) for r in (hinted, coached, plain)]
+    s = stats_from_facts(facts, hints=True)
+    n = s["now"]
+    assert n["boards"] == 2 and n["declarer_lost"] == 0.5 and n["vs_par"] == 0 and n["all_boards"] == 3
+    assert n["hints_per_board"] == round(1 / 3, 1)  # help used is always over every board
+    assert s["left_out"] == ["hints"]
+    assert stats_from_facts(facts, hints=True, coach=True)["now"]["boards"] == 1
+
+
+def test_excluding_undo_leaves_out_whole_boards():
+    from bridge.stats import stats_from_facts
+    facts = [board_facts(r) for r in (rec(key="a", undos=1, lost_me=2), rec(key="b", lost_me=0))]
+    n = stats_from_facts(facts, undo=True)["now"]
+    assert n["boards"] == 1 and n["declarer_lost"] == 0 and n["all_boards"] == 2 and n["undos_per_board"] == 0.5
+
+
+def test_level_excludes_the_same_boards():
+    from bridge.stats import stats_from_facts
+    recs = [{**rec(key=f"k{i}", lost_me=1, hints=1, days_ago=1 + i / 100),
+             "asked": [{"kind": "card", "index": 1, "seat": "S", "asked": ["hints"]}]} for i in range(25)]
+    facts = [board_facts(r) for r in recs]
+    assert stats_from_facts(facts)["level"]["hands"] == 25
+    assert stats_from_facts(facts, hints=True)["level"]["hands"] == 0  # the level follows the ticks too

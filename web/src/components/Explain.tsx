@@ -1,6 +1,7 @@
 import botLevels from "../botLevels.json";
 import CheatSheetLink from "./CheatSheet";
 import Info from "./Info";
+import SuitText from "./SuitText";
 
 // The ⓘ pop-ups that say how the app works things out. Odds from 100 sampled layouts carry a margin of error:
 // at 50% a 95% range is about 10 points either way, narrower toward 0% or 100%. Close calls get more layouts.
@@ -111,6 +112,9 @@ export function ReviewInfo() {
   return (
     <Info title="How the review works">
       <p>
+        <strong>Par</strong> is the result if both sides bid and played perfectly.
+      </p>
+      <p>
         <strong>With perfect play</strong> is how many tricks declarer could take if everyone played perfectly with all 52
         cards face up.
       </p>
@@ -168,6 +172,154 @@ export function ReviewInfo() {
         At rubber, a part score counts toward game. It's an estimate: after either call, the real players might have
         bid differently. When someone bid again after the call, their bid helped decide the result too, and the
         review says so.
+      </p>
+    </Info>
+  );
+}
+
+/** The second table and how IMPs are worked out; `onClose` opens it from a tap on the IMPs themselves. */
+export function SecondTableInfo({ onClose }: { onClose?: () => void }) {
+  return (
+    <Info title="How the second table works" onClose={onClose}>
+      <p>
+        After each board, the same deal is played again, as at a team match. A level 10 bot takes your seat, and the other
+        three seats are as they were: the bots at your table's strength (a bot stands in for any other person).
+      </p>
+      <p>
+        <strong>IMPs (International Match Points)</strong> are how team matches score it. Both results are scored as at
+        duplicate (at rubber, counting the part score already below the line), and the points between them become IMPs
+        on the standard scale, from 0 to 24. Plus means you did better.
+      </p>
+      <p>
+        <SuitText text="For example, the bot makes 4♥ for +420 and you go down for −200: 620 points apart, so −12 IMPs." /> A
+        small difference counts for little, a missed game or slam for a lot.
+      </p>
+      <p>
+        <strong>Bidding and play:</strong> the bidding's share scores both contracts as if every card were seen, so the
+        card play doesn't count. The play is the rest, and includes how the bots played at the other table.
+      </p>
+      <p>
+        <SuitText text="For example, you make 2♥ with an overtrick (+140) and the bot makes 4♥ (+420): −7 IMPs. With every card seen, hearts take 10 tricks, so your 2♥ is worth +170 against +420: bidding −6, which leaves play −1." />{" "}
+        My stats splits the play into declaring (your side declared) and defense.
+      </p>
+      <p>
+        One board says more about the cards than about you, since the other bots don't always play the same way twice.
+        My stats averages it over your boards.
+      </p>
+    </Info>
+  );
+}
+
+export function ParInfo() {
+  return (
+    <Info title="How par works">
+      <p>
+        <strong>Par</strong> is the score the board is worth if all four players bid and play perfectly, with every card
+        seen. Each side bids as high as pays: the side with the cards plays its best contract, and the other side
+        sacrifices when going down costs less.
+      </p>
+      <p>
+        <strong>Score against par</strong> is your score minus par. Plus means you beat par, usually because the other
+        side slipped.
+      </p>
+      <p>
+        <SuitText text="For example, par is 4♥ for +420. You stop in 2♥ and make 10 tricks for +170: that's −250. If instead the opponents hold the cards for 4♥ (par −420) and they stop low, so you lose only 170, that's +250." />
+      </p>
+      <p>
+        At rubber, each board is scored the way par is: game and part-score bonuses on the board, with any part score
+        already below the line counting towards game.
+      </p>
+      <p>
+        Par is a high bar, and one board says more about the cards than about you. My stats averages it over your boards,
+        and the line shows the average day by day.
+      </p>
+    </Info>
+  );
+}
+
+export function BiddingStatsInfo() {
+  return (
+    <Info title="How bidding is measured">
+      <p>
+        <strong>IMPs:</strong> the bidding's share of the second table. Your contract and the bot's are both scored as if
+        every card were seen, so the card play doesn't count. Plus means your auctions reached better contracts.
+      </p>
+      <p>
+        The bot in your seat bids like every bot: at an intermediate level, by the <CheatSheetLink /> and the table's
+        conventions. Bot strength changes only the card play. So this compares you with an intermediate bidder, not an
+        expert.
+      </p>
+      <p>
+        <strong>Calls off the system</strong> are calls the system wouldn't make with your hand. Sensible alternatives
+        aren't counted. Leaving the system isn't always wrong: <strong>points per call</strong> compares the contract your
+        call led to with the one the system's call would have, both with every card seen. It counts only calls nobody bid
+        after, since otherwise later calls decided the contract.
+      </p>
+      <p>
+        <strong>Limits:</strong> with every card seen, finesses and splits always go the right way, so a contract that
+        needed luck counts as making. The other bots at the second table don't always bid the same way twice.
+      </p>
+    </Info>
+  );
+}
+
+export function DeclaringStatsInfo() {
+  return (
+    <Info title="How declaring is measured">
+      <p>
+        <strong>IMPs:</strong> the play's share of the second table on boards your side declared. When your partner
+        declared, it's their play, since you were dummy.
+      </p>
+      <p>
+        <strong>Level</strong> and <strong>tricks lost per hand</strong> count every card you chose as declarer (dummy's
+        too) against perfect play with every card seen, as in the review, and compare them with the bots.
+        <strong> Made</strong> counts only contracts that could make with every card seen.
+      </p>
+      <p>
+        <strong>Limits:</strong> with every card seen, the right finesse is always known, so some tricks lost were the best
+        bet at the time (the review marks them unlucky). The IMPs also depend on how the bots played at the other table.
+      </p>
+    </Info>
+  );
+}
+
+export function DefenseStatsInfo() {
+  return (
+    <Info title="How defense is measured">
+      <p>
+        <strong>IMPs:</strong> the play's share of the second table on boards the other side declared. Your partner's
+        defense and the declarer at the other table count too.
+      </p>
+      <p>
+        <strong>Level</strong> and <strong>tricks given away per hand</strong> count your own cards against perfect play
+        with every card seen, and compare them with the bots. <strong>Opening leads that cost a trick</strong> are leads
+        that let declarer take one more trick with every card seen.
+      </p>
+      <p>
+        <strong>Limits:</strong> a trick you give away costs only if declarer takes it, and a bot at your table's strength
+        often doesn't. So the IMPs can be near zero while your level is below 10. A lead often costs only because of where
+        the cards lie, which you couldn't see.
+      </p>
+    </Info>
+  );
+}
+
+export function HelpUsedInfo() {
+  return (
+    <Info title="How Help used works">
+      <p>
+        The numbers are how often you used each kind of help, a board on average: <strong>hints</strong> you asked for
+        (asking again on the same turn counts once), calls and cards you took back with <strong>Undo</strong>, and
+        questions to your <strong>AI coach</strong> on your turn.
+      </p>
+      <p>
+        Ticking one excludes every board where you used it, from every figure on the page, your level included. The
+        boards stay in your hand history, and Show all brings them back.
+      </p>
+      <p>
+        <strong>Why your stats may go up:</strong> people tend to ask for a hint, or take something back, on the hard
+        boards. Excluding those leaves the easier ones, so your figures can look better with a tick, not worse. The bots
+        your level is compared with play every board, hard ones included.
       </p>
     </Info>
   );

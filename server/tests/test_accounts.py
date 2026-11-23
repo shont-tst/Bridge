@@ -635,3 +635,16 @@ def test_a_table_played_offline_comes_back_to_the_server(client):
     back = app_module.rooms.rooms[code]
     assert back.players["S"].user == me["user"]["id"] and back.table.hands == room.table.hands
     assert client.post("/api/rooms/carry", json={"snap": room.snapshot(), "token": "nope"}).status_code == 400
+
+
+def test_a_saved_board_comes_with_its_auction_explained(client):
+    """Hand history shows the auction as at the table: each call with what it meant in the system."""
+    me, _ = sign_up(client, "Avery")
+    user = client.get("/api/me", headers=auth(me["token"])).json()["user"]["id"]
+    app_module.accounts.save_board(user, {"room": "R1", "board": 1, "finished_at": 1000.0, "seat": "S", "dealer": "N",
+                                          "calls": ["1N", "P", "3N", "P", "P", "P"], "conventions": []})
+    key = app_module.accounts.boards(user)[0]["key"]
+    rec = client.get(f"/api/me/boards/{key}", headers=auth(me["token"])).json()
+    assert [(a["seat"], a["call"]) for a in rec["auction"]] == [("N", "1N"), ("E", "P"), ("S", "3N"), ("W", "P"),
+                                                               ("N", "P"), ("E", "P")]
+    assert "balanced" in rec["auction"][0]["meaning"]["text"]

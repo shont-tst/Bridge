@@ -3,11 +3,16 @@
 // in early iteration and changes only when the owner says so (then the minor starts again at 1). NEWS: one entry per day,
 // newest first, about the last 5 days, dated by the day it was published in Pacific time. Each entry lists the changes a player would notice in plain words, features
 // first and a bare "Bug fixes." (or "Bug and UI fixes.") last (don't spell out what was fixed or small UI tweaks).
-export const VERSION = "2.37";
+export const VERSION = "2.45";
 
 import { CHEAT_SHEET_HTML } from "./components/CheatSheet";
 
 export const NEWS: [string, string[]][] = [
+  ["November 22, 2026", [
+    "<b>Second table:</b> after each board, the same deal is played again with a level 10 bot in your seat, and the review scores you against it in IMPs. My stats shows your average.",
+    "<b>A cleaner review:</b> a few lines sum up each board, and every part opens from its own pull-down. Hand history in My stats now shows the auction and play too.",
+    "<b>Improved My stats:</b> grouped by bidding, declaring and defense, with tick boxes to exclude help you used.",
+  ]],
   ["November 20, 2026", [
     "<b>Play locally:</b> games with bots now run on your phone and work with no internet. Partners on the same Wi-Fi can join by scanning a code.",
     "<b>Hints match the review:</b> when two cards make the contract about equally, the hint also shows which is likelier to take an extra trick.",

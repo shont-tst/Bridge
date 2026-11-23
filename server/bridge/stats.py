@@ -18,6 +18,7 @@ from .core.board import is_vulnerable
 from .core.cards import partner
 from .core.par import par as par_from_tricks
 from .core.scoring import duplicate_score
+from .game.second import fill_split
 from .patterns import costly_cards, lead_info
 
 CALIBRATION = Path(__file__).resolve().parent / "bots" / "calibration.json"
@@ -64,6 +65,10 @@ def board_facts(rec: dict) -> dict:
     out["undone_tricks"] = sum(u.get("lost") or 0 for u in undone if u["kind"] == "card")
     out["undone_calls_off"] = sum(1 for u in undone if u["kind"] == "call" and u.get("system_call") not in (None, u["call"]))
     review = rec.get("review") or {}
+    # the same deal played again with a level 10 bot in this seat, in IMPs for the player (game/second.py)
+    second = ((fill_split(rec).get("review") or {}).get("second") or {}).get(seat) or {}
+    out["second_imps"] = second.get("imps")
+    out["second_bidding"], out["second_play"] = second.get("bidding_imps"), second.get("play_imps")
     off = [b for b in review.get("bidding") or [] if b.get("seat") == seat and not b.get("minor")]
     out["off_system"] = [b.get("convention") for b in off]
     out["off_system_own"] = [b.get("convention") for b in off if b.get("index") not in asked_calls]
@@ -171,6 +176,13 @@ def own_play(facts: list[dict]) -> list[dict]:
              "off_system": f.get("off_system_own", f["off_system"])} for f in facts]
 
 
+def leave_out(facts: list[dict], hints: bool = False, undo: bool = False, coach: bool = False) -> list[dict]:
+    """The facts without the boards where the player used the help they ticked (a hint, Undo, an AI coach question).
+    Whole boards go, so every figure follows the same rule: par and the second table score the whole board and can't
+    leave out one card."""
+    return [f for f in facts if not ((hints and f.get("hints")) or (undo and f.get("undos")) or (coach and f.get("coach")))]
+
+
 def _avg(xs: list[float]) -> float | None:
     return round(sum(xs) / len(xs), 2) if xs else None
 
@@ -191,8 +203,17 @@ def summarize(facts: list[dict]) -> dict:
     decided = [o for f in facts for o in f.get("bid_outcomes") or []
                if o.get("verdict") and o.get("contract_set_by", "your call") == "your call"]
     n = len(facts)
+    second = [f["second_imps"] for f in facts if f.get("second_imps") is not None]
     return {
         "boards": n,
+        "second_imps": _avg(second), "second_boards": len(second),
+        # where those IMPs came from: the bidding (both contracts with every card seen), and the play, split by
+        # whether the player's side declared at their table
+        "second_bidding": _avg([f["second_bidding"] for f in facts if f.get("second_bidding") is not None]),
+        "second_declaring": _avg([f["second_play"] for f in facts
+                                  if f.get("second_play") is not None and f["role"] in ("declarer", "dummy")]),
+        "second_defending": _avg([f["second_play"] for f in facts
+                                  if f.get("second_play") is not None and f["role"] == "defender"]),
         "off_system_points": _avg([o["points"] for o in decided]),
         "off_system_helped": sum(1 for o in decided if o["verdict"] == "helped"),
         "off_system_cost": sum(1 for o in decided if o["verdict"] == "hurt"),
@@ -274,7 +295,11 @@ def my_stats(records: list[dict], days: int | None = 30) -> dict:
     return stats_from_facts([board_facts(r) for r in records], days)
 
 
-def stats_from_facts(facts: list[dict], days: int | None = 30) -> dict:
+def stats_from_facts(facts: list[dict], days: int | None = 30, hints: bool = False, undo: bool = False,
+                     coach: bool = False) -> dict:
+    """My stats over the last `days` (None: all time), without the boards where the player used the help they ticked
+    (leave_out). How much help they used is always counted over every board, and `all_boards` says how many there
+    were before. The level excludes them too (one rule for the page); with few boards left it reads less surely."""
     now = time.time()
     if days:
         recent = [f for f in facts if f["at"] >= now - days * 86400]
@@ -282,8 +307,13 @@ def stats_from_facts(facts: list[dict], days: int | None = 30) -> dict:
     else:
         recent, before = facts, []
     last_difficulty = next((f["difficulty"] for f in sorted(facts, key=lambda f: -f["at"]) if f["difficulty"]), None)
-    return {"days": days, "now": summarize(recent), "before": summarize(before) if before else None,
-            "trend": trend(recent, days or 3650), "level": rating(facts), "bots": last_difficulty}
+    pick = lambda rows: leave_out(rows, hints, undo, coach)  # noqa: E731
+    now_ = summarize(pick(recent))
+    used = summarize(recent)
+    now_.update({k: used[k] for k in ("hints_per_board", "undos_per_board", "coach_per_board")}, all_boards=len(recent))
+    return {"days": days, "now": now_, "before": summarize(pick(before)) if before else None,
+            "trend": trend(pick(recent), days or 3650), "level": rating(pick(facts)), "bots": last_difficulty,
+            "left_out": [k for k, on in (("hints", hints), ("undo", undo), ("coach", coach)) if on]}
 
 
 def history(records: list[dict]) -> list[dict]:

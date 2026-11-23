@@ -6,6 +6,33 @@ bots fill the empty seats. The bidding follows the
 1NT, 5-card majors), and the app is built to help you get better: hints, a review after every board, lessons, and an
 AI coach you can connect.
 
+## Screenshots
+
+On an iPad, from a demo account (the player and the bots' names are made up).
+
+<table>
+  <tr>
+    <td width="33%"><img src="screenshots/bidding.png" alt="Bidding: one-tap bid buttons, partnership points at a glance and a hint that explains the call"></td>
+    <td width="33%"><img src="screenshots/play.png" alt="Card play: declaring 4♥ with dummy laid out in suit columns, and a hint with the odds of making it"></td>
+    <td width="33%"><img src="screenshots/review.png" alt="Review after a board: par, the card that cost a trick, and the second table's result in IMPs"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Bidding</b>, with a hint</td>
+    <td align="center"><b>Card play</b>, with a hint and its odds</td>
+    <td align="center"><b>Review</b> of a board, with the second table</td>
+  </tr>
+  <tr>
+    <td width="33%"><img src="screenshots/stats.png" alt="My stats: level on the bots' scale, results against par and the second table, and the hand history"></td>
+    <td width="33%"><img src="screenshots/learn.png" alt="Learn to play: seven short steps from tricks to scoring"></td>
+    <td width="33%"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>My stats</b> and hand history</td>
+    <td align="center"><b>Learn to play</b></td>
+    <td></td>
+  </tr>
+</table>
+
 ## What it does
 
 - **Tables:** start a table and invite friends with a link. Up to four people pick their seats; bots play the rest.
@@ -17,7 +44,8 @@ AI coach you can connect.
   the hidden cards and solving each one with a double-dummy solver, never peeking at hidden hands. Tap a bot's call
   or card to see why.
 - **Learning:** Learn to play for newcomers, a lesson with practice deals for each convention, hints with odds, and a
-  review after each board that marks costly cards as Mistake or Unlucky and calls off the system as Helped or Cost.
+  review after each board that marks costly cards as Mistake or Unlucky and calls off the system as Helped or Cost,
+  and a second table that plays each deal again with the strongest bot in your seat and scores you against it in IMPs.
 - **My stats**, sign-in with passkeys, friends, invites, feedback and an owner's Admin page.
 - **Play locally:** bot tables can run on the phone itself (the same Python game, in the browser through Pyodide),
   so they work with no internet. Two phones on a Wi-Fi with no internet can pair with QR codes.
@@ -66,6 +94,7 @@ locally and files no feedback issues.
 | `BRIDGE_RATE_LIMITS` | on | `0` turns off rate limits, for local testing |
 | `BRIDGE_BOT_DELAY` | 0.7 | Seconds between bot actions, so people can follow |
 | `BRIDGE_SOLVER_WORKERS` | 1 | Solver processes; set to the number of CPUs |
+| `BRIDGE_SECOND_BACKFILL` | 1 | Saved boards from before the second table get one, once, in the background; 0 skips it |
 | `BRIDGE_DDS_THREADS` | all cores | Cap the solver's threads (and memory) |
 | `BRIDGE_WEB_DIST` | `web/dist` | The built web app to serve |
 
@@ -78,7 +107,7 @@ server/bridge/
   core/          cards, boards, auction, play, scoring, rubber, claims, par
   bidding/       the rule engine, conventions, lessons, part-score and vulnerability bidding
   bots/          what a bot may see, the sampler, card play, opening leads, signals, strength levels
-  game/          rooms, tables, review and odds
+  game/          rooms, tables, review, odds and the second table
   solver.py      the double-dummy solver (DDS) in a worker process
   accounts.py    passkeys, accounts, friends, invite links
   social.py      who is online, invites to play;  push.py  phone notifications

@@ -578,6 +578,12 @@ class Accounts:
         if user_id in self._facts:
             self._facts[user_id][key] = board_facts({**record, "key": key})
 
+    def update_board(self, user_id: str, key: str, record: dict) -> None:
+        """Save a board again with something worked out later (backfill.py), leaving the friends order alone."""
+        self.store.put("boards", user_id, key, record)
+        if user_id in self._facts:
+            self._facts[user_id][key] = board_facts({**record, "key": key})
+
     def drop_board(self, user_id: str, record: dict) -> None:
         key = self.board_key(record)
         self.store.delete("boards", user_id, key)

@@ -31,6 +31,7 @@ from typing import Callable
 from .bidding.conventions import make_engine
 from .bidding.engine import BiddingEngine
 from .game.odds import odds_ahead
+from .game.second import second_table
 from .game.room import Room, at, averages_ahead
 from .game.table import card_hint
 from .solver import Cancelled, Job
@@ -52,7 +53,7 @@ class InlineExecutor(ThreadPoolExecutor):
 
 
 # The work the helper does: what the server does ahead of time at the solver's lower urgencies.
-AHEAD = {card_hint, odds_ahead, averages_ahead}
+AHEAD = {card_hint, odds_ahead, averages_ahead, second_table}
 
 
 @lru_cache(maxsize=8)

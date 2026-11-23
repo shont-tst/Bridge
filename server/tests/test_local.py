@@ -161,8 +161,9 @@ def test_the_helper_works_out_hints_and_odds_ahead_without_holding_up_the_game()
             await _settle(host)
             await asyncio.sleep(0)
         assert room.table.phase == "done"
-        assert "card_hint" in jobs and "odds_ahead" in jobs
+        assert "card_hint" in jobs and "odds_ahead" in jobs and "second_table" in jobs
         assert not room.table.result.review.get("odds_pending")
+        assert room.table.result.review["second"]["S"]["level"] == 10  # the second table, played in the helper
 
     asyncio.run(go())
 

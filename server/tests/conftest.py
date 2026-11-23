@@ -5,6 +5,7 @@ import tempfile
 os.environ.setdefault("BRIDGE_DATA_DIR", tempfile.mkdtemp(prefix="bridge-test-"))
 os.environ.setdefault("BRIDGE_ACCOUNTS", "1")
 os.environ.setdefault("BRIDGE_RATE_LIMITS", "0")  # every test client comes from one address; test_limits turns them on
+os.environ.setdefault("BRIDGE_SECOND_BACKFILL", "0")  # tests that want it call backfill.run themselves
 
 import pytest
 

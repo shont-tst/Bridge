@@ -3,6 +3,8 @@ import type { RoomState, Seat } from "../types";
 import RubberPad from "./RubberPad";
 import SuitText from "./SuitText";
 
+// Undoubled, doubled, redoubled.
+const DOUBLED = ["", "X", "XX"];
 
 /**
  * The score so far. Duplicate: one row per board with a running total.
@@ -62,7 +64,7 @@ export default function ScoreSheet({ state, me, onClose }: { state: RoomState; m
                   <tr key={h.board}>
                     <td>{h.board}</td>
                     <td>
-                      <SuitText text={h.contract ? `${h.contract.level}${SUIT_SYMBOL[h.contract.strain]}${"X".repeat(Math.min(Math.max(h.contract.doubled, 0), 2))} ${h.contract.declarer}` : "Passed"} />
+                      <SuitText text={h.contract ? `${h.contract.level}${SUIT_SYMBOL[h.contract.strain]}${DOUBLED[h.contract.doubled] ?? ""} ${h.contract.declarer}` : "Passed"} />
                     </td>
                     <td>{h.contract ? h.tricks : "–"}</td>
                     <td className={mine < 0 ? "minus-ink" : ""}>{signed(mine)}</td>

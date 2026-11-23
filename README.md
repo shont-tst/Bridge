@@ -43,10 +43,28 @@ On an iPad, from a demo account (the player and the bots' names are made up).
 - **Bots** play at a strength from 1 to 10. They bid by the system's rules and play by trying many possible layouts of
   the hidden cards and solving each one with a double-dummy solver, never peeking at hidden hands. Tap a bot's call
   or card to see why.
-- **Learning:** Learn to play for newcomers, a lesson with practice deals for each convention, hints with odds, and a
-  review after each board that marks costly cards as Mistake or Unlucky and calls off the system as Helped or Cost,
-  and a second table that plays each deal again with the strongest bot in your seat and scores you against it in IMPs.
-- **My stats**, sign-in with passkeys, friends, invites, feedback and an owner's Admin page.
+- **Learning:** Learn to play for newcomers (seven short steps, skipping what you know from games like Hearts or
+  Spades), a lesson with practice deals for each convention, for opening leads and for signals, and hints: the
+  system's call, or a card with how often it makes or beats the contract.
+- **Review after every board:** a few lines sum the board up (par, your play, your bidding, the second table) above
+  the four hands, and each opens in full:
+  - **Cards that cost a trick**, found by solving the deal with every card seen, each marked **Mistake** (the worse
+    bet at the time, with the odds of both cards on the layouts you could see) or **Unlucky** (a good bet that the
+    cards beat). It also notes a trick the other side gave back.
+  - **Bidding:** every call that left the system, marked **Helped** or **Cost** in points, judged over many deals like
+    this one, with a note such as "No harm this time" when this deal went the other way.
+  - **Second table:** the same deal played again with the strongest bot in your seat and the other seats as they
+    were, as at a team match. You see its contract, auction and play, and your result against it in IMPs, split into
+    what came from the bidding and what came from the play.
+  - The auction, the play trick by trick, and the tricks with all cards seen.
+- **My stats:** your level on the bots' 1 to 10 scale, your score against par and your IMPs against the second table,
+  then bidding, declaring and defense, each with its share of those IMPs, its own figures (calls off the system,
+  tricks lost, contracts made, opening leads that cost a trick) and a tip for the weakest of the three. Tick boxes
+  leave out the boards where you used hints, Undo or the AI coach. Below is every hand you've played, each with the
+  same review as at the table.
+- **AI coach:** connect your own AI assistant (such as Claude or ChatGPT) to talk boards through and find patterns
+  across many boards.
+- Sign-in with passkeys, friends, invites, feedback and an owner's Admin page.
 - **Play locally:** bot tables can run on the phone itself (the same Python game, in the browser through Pyodide),
   so they work with no internet. Two phones on a Wi-Fi with no internet can pair with QR codes.
 

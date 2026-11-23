@@ -15,6 +15,9 @@ interface Props {
   style?: CSSProperties;
 }
 
+// Face-down cards for a hand we only know the size of (never more than 13).
+const HIDDEN: (string | null)[] = Array(13).fill(null);
+
 /**
  * A hand held as a fan: every card turns about one point below the hand, so the corners stay readable.
  * The pivot is set from the fan's width, so 13 cards always fit the screen.
@@ -31,7 +34,7 @@ export default function Fan({ cards, w, h, spread = 50, playable, onPlay, hinted
     setWidth(el.clientWidth);
     return () => ro.disconnect();
   }, []);
-  const list = typeof cards === "number" ? Array<string | null>(Math.min(Math.max(cards, 0), 13)).fill(null) : sortFan(cards, trump);
+  const list = typeof cards === "number" ? HIDDEN.slice(0, Math.max(cards, 0)) : sortFan(cards, trump);
   const n = list.length;
   const half = ((spread / 2) * Math.PI) / 180;
   const span = Math.max(w, width - w - 8); // room for the cards' centers to travel

@@ -3,7 +3,7 @@
 // in early iteration and changes only when the owner says so (then the minor starts again at 1). NEWS: one entry per day,
 // newest first, about the last 5 days, dated by the day it was published in Pacific time. Each entry lists the changes a player would notice in plain words, features
 // first and a bare "Bug fixes." (or "Bug and UI fixes.") last (don't spell out what was fixed or small UI tweaks).
-export const VERSION = "2.48";
+export const VERSION = "2.49";
 
 import { CHEAT_SHEET_HTML } from "./components/CheatSheet";
 

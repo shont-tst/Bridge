@@ -125,7 +125,7 @@ export function useRoom(session: Session | null, onSession: (s: Session) => void
     const connect = () => {
       const s = sessionRef.current!;
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      const ws: Sock = s.local ? new LocalSocket(s.room, s.fresh) : s.wifi ? new WifiSocket() : (new WebSocket(`${proto}://${location.host}/ws/${s.room}`) as unknown as Sock);
+      const ws: Sock = s.local ? new LocalSocket(s.room, s.fresh) : s.wifi ? new WifiSocket() : (new WebSocket(`${proto}://${location.host}/ws/${encodeURIComponent(s.room)}`) as unknown as Sock);
       wsRef.current = ws;
       revRef.current = 0;
       ws.onopen = () => {

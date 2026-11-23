@@ -31,7 +31,7 @@ export default function Fan({ cards, w, h, spread = 50, playable, onPlay, hinted
     setWidth(el.clientWidth);
     return () => ro.disconnect();
   }, []);
-  const list = typeof cards === "number" ? Array<string | null>(cards).fill(null) : sortFan(cards, trump);
+  const list = typeof cards === "number" ? Array<string | null>(Math.min(Math.max(cards, 0), 13)).fill(null) : sortFan(cards, trump);
   const n = list.length;
   const half = ((spread / 2) * Math.PI) / 180;
   const span = Math.max(w, width - w - 8); // room for the cards' centers to travel

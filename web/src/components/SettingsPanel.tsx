@@ -23,7 +23,7 @@ export default function SettingsPanel({ settings, onChange, onClose, onLeave, on
   onInvite?: () => void; // signed in: pick friends to invite (otherwise Invite to game shares a link)
   onPractice?: (id: string) => void; // the home screen: start a bot table on this practice
   room?: string; // none on the home screen
-  where?: "local" | "wifi"; // a table on this phone (with no internet, Invite asks a partner on this Wi-Fi), or on a partner's
+  where?: "local" | "wifi" | "invite"; // "invite": a bot table kept on the server so a friend can join; or a table on this phone (with no internet, Invite asks a partner on this Wi-Fi), or on a partner's
 }) {
   const home = !room;
   const [conventions, setConventions] = useState<ConventionInfo[]>([]);
@@ -123,7 +123,11 @@ export default function SettingsPanel({ settings, onChange, onClose, onLeave, on
             </div>
           </div>
         )}
-        {where !== "wifi" && <BotsHere />}
+        {where !== "wifi" && (
+          <BotsHere
+            server={home || where === "local" ? undefined : others ? "On the server while a partner is here." : where === "invite" ? "On the server so a friend can join." : undefined}
+          />
+        )}
         <h3>{home ? "New tables" : "This table"}</h3>
         <p className="muted">{home ? "Your new tables start with these." : "These apply to everyone at the table."}</p>
         <label>

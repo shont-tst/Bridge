@@ -4,6 +4,9 @@ import PlayingCard from "./PlayingCard";
 
 const HIGH = "AKQJT98765432";
 
+/** How far each card in a column (or side row) sits below (or beside) the one before it. */
+export const dummyStep = (w: number, side = false) => Math.round(w * (side ? 0.44 : 0.42));
+
 /**
  * Dummy as it lies on the table, trumps first (on declarer's left).
  * "columns": a column per suit, highest card at the top, each overlapping the next (iPad).
@@ -52,7 +55,7 @@ export default function Dummy({ cards, trump, playable = [], onPlay, hinted, w, 
   }
 
   const side = layout === "side";
-  const step = Math.round(w * (side ? 0.44 : 0.42));
+  const step = dummyStep(w, side);
   return (
     <div className={`dummy ${layout}`}>
       {bySuit.map((col, k) => {

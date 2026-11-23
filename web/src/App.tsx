@@ -160,16 +160,34 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.local, session?.token, phase]);
 
+  // a table that went to the server for an invite stays there until someone joins it. Once they have, it's an
+  // ordinary table with people: when it's down to you and the bots again, it comes back to this phone (below).
+  const people = state?.room === session?.room ? Object.keys(state?.players ?? {}).length : 0;
+  useEffect(() => {
+    if (session?.stay && people > 1) update({ ...session, stay: undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.stay, people]);
+
   // the other way: a bot table on the server comes to this phone between boards (bots play here by default), unless
-  // it went there for an invite. The server sends this phone a copy of it after each change (connection.ts).
+  // it went there for an invite. The server sends this phone a copy of it after each change while you're the only
+  // person at it (connection.ts), so a table a partner just left comes too, rubber score and all.
   useEffect(() => {
     if (!session || session.local || session.wifi || session.stay || session.watch || phase !== "done") return;
-    if (!botsHere() || !offlineReady() || !canCarryOn(session.room)) return;
-    carryOn(session.room);
-    history.replaceState(null, "", "/");
-    update({ ...session, local: true, fresh: undefined, user: account.user ? { id: account.user.id, name: account.user.name } : undefined });
+    if (!botsHere() || !offlineReady()) return;
+    const s = session;
+    const come = () => {
+      if (!canCarryOn(s.room)) return false;
+      carryOn(s.room);
+      history.replaceState(null, "", "/");
+      update({ ...s, local: true, fresh: undefined, user: account.user ? { id: account.user.id, name: account.user.name } : undefined });
+      return true;
+    };
+    if (come()) return;
+    // the copy comes just after the table's news, so a partner leaving as the board ends needs a moment
+    const soon = window.setTimeout(come, 1500);
+    return () => clearTimeout(soon);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.room, session?.local, phase]);
+  }, [session?.room, session?.local, session?.stay, phase, people]);
 
   // a bot table on this phone, signed in: a copy goes to your account after each change, so your iPad (say) can carry
   // on with it, and your AI coach can see it. If another device has carried on with it, this phone follows.
@@ -443,7 +461,7 @@ export default function App() {
         account={account}
         friends={friends}
         inviting={inviting}
-        where={session.local ? "local" : session.wifi ? "wifi" : undefined}
+        where={session.local ? "local" : session.wifi ? "wifi" : session.stay ? "invite" : undefined}
       />
       {moved && (
         <div className="sheet-backdrop moved-backdrop">

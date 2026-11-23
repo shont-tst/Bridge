@@ -251,6 +251,9 @@ a { color: var(--gold); text-underline-offset: 3px; }
 
 /* the trick */
 .trick-area { --w: 54px; --h: 76px; position: absolute; left: 50%; top: 54%; width: 176px; height: 176px; transform: translate(-50%, -50%); z-index: 4; }
+/* the empty space around the played cards lets taps through to dummy's cards, unless a tap ends a held trick */
+.trick-area:not(.tap) { pointer-events: none; }
+.trick-area > * { pointer-events: auto; }
 .trick-area .pc.top { left: calc(50% - var(--w) / 2); top: 0; }
 .trick-area .pc.bottom { left: calc(50% - var(--w) / 2); bottom: 0; }
 .trick-area .pc.left { left: 0; top: calc(50% - var(--h) / 2); }
@@ -333,6 +336,8 @@ a { color: var(--gold); text-underline-offset: 3px; }
 
 /* deal */
 .deal-overlay { position: absolute; inset: 0; z-index: 50; background: radial-gradient(ellipse at 50% 40%, var(--felt-light), var(--felt) 70%); }
+/* the hands stay hidden until the deal is done: the fan reaches past the overlay at the bottom edge */
+.play-layout.dealing .myfan, .play-layout.dealing .seatfan { visibility: hidden; }
 .deal-overlay .flyer { --w: 46px; --h: 64px; left: calc(50% - 23px); top: calc(50% - 32px); }
 .wide .deal-overlay .flyer { --w: 64px; --h: 90px; left: calc(50% - 32px); top: calc(50% - 45px); }
 

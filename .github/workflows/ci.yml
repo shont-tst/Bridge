@@ -5,6 +5,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Read the code only: nothing in CI needs to write to the repository.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true

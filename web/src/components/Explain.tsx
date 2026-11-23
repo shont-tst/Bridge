@@ -355,7 +355,8 @@ export function PlayLocallyInfo({ device }: { device: string }) {
       </p>
       <p>
         <strong>With internet,</strong> your boards still go to My stats, your AI coach can see the table, and your other
-        devices can pick up where you left off. Inviting a friend moves the table to the server so they can join.
+        devices can pick up where you left off. Inviting a friend moves the table to the server so they can join. It
+        comes back to this {device} once you're the only one at it again.
       </p>
       <p>
         <strong>With no internet,</strong> finished boards wait on this {device} and go to My stats once it's back

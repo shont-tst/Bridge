@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ConventionInfo, LessonInfo, Settings } from "../types";
+import type { ConventionInfo, Settings } from "../types";
 import CheatSheetLink from "./CheatSheet";
 import ConventionPage from "./ConventionPage";
 import { BotStrengthInfo, HintsInfo } from "./Explain";
@@ -27,13 +27,11 @@ export default function SettingsPanel({ settings, onChange, onClose, onLeave, on
 }) {
   const home = !room;
   const [conventions, setConventions] = useState<ConventionInfo[]>([]);
-  const [topics, setTopics] = useState<LessonInfo[]>([]);
   const [level, setLevel] = useState(settings.difficulty);
   const [lesson, setLesson] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false); // Leave asks: return later, or quit
   useEffect(() => {
     fetch("/api/conventions").then((r) => r.json()).then(setConventions).catch(() => {});
-    fetch("/api/lessons").then((r) => r.json()).then(setTopics).catch(() => {});
   }, []);
   const toggle = (id: string) => {
     const on = new Set(settings.conventions);
@@ -210,22 +208,6 @@ export default function SettingsPanel({ settings, onChange, onClose, onLeave, on
           <CheatSheetLink />
           .
         </p>
-        <ul className="conventions topics">
-          {topics.map((t) => (
-            <li key={t.id}>
-              <span>
-                <strong>{t.title}</strong>
-                <br />
-                <span className="muted">
-                  <SuitText text={t.description} />
-                </span>
-              </span>
-              <button className="small learn" onClick={() => setLesson(t.id)}>
-                {settings.practice === t.id ? "Practicing" : "Learn & practice"}
-              </button>
-            </li>
-          ))}
-        </ul>
         <h4>Conventions</h4>
         <ul className="conventions">
           {conventions

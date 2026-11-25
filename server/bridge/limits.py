@@ -36,7 +36,7 @@ _ROOM = re.compile(r"^/(api/rooms/[^/]+(/.*)?|ws/(?!presence$)[^/]+)$")
 def bucket_for(method: str, path: str) -> str | None:
     if path == "/api/health":  # Azure's own checks
         return None
-    if path == "/api/rooms" and method == "POST":
+    if path in ("/api/rooms", "/api/puzzles/start") and method == "POST":
         return "new_room"
     if _ROOM.match(path):
         return "room"

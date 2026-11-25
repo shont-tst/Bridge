@@ -226,8 +226,10 @@ class LocalHost:
                     await send({"type": "error", "message": str(exc)})
                 return
             await room.handle(seat, msg, token)
+            if msg.get("id"):  # a call or card the app keeps sending until it hears back (Room._fresh)
+                await send({"type": "ack", "id": msg["id"]})
         except ValueError as exc:
-            await send({"type": "error", "message": str(exc)})
+            await send({"type": "error", "message": str(exc), **({"id": msg["id"]} if msg.get("id") else {})})
 
     async def _join(self, conn: int, send, hello: dict) -> None:
         room = self.room

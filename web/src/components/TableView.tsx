@@ -2,7 +2,9 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { SEAT_NAME, SUIT_SYMBOL, callLabel, cardLabel, compass, isRed, partnerOf, sameSide, signed } from "../cards";
 import { loadToken, type Account, type FriendsView } from "../account";
 import { REMEMBERED, reducedMotion, usePrefs } from "../prefs";
-import type { Hint, RoomState, Seat, Settings, TableState } from "../types";
+import type { Hint, ReplaySpec, RoomState, Seat, Settings, TableState } from "../types";
+import { replaySpec } from "../replay";
+import PuzzleSheet from "./PuzzleSheet";
 import { useUpdate } from "../update";
 import AuctionView from "./AuctionView";
 import BiddingBox from "./BiddingBox";
@@ -16,13 +18,12 @@ import { HintsInfo } from "./Explain";
 import Fan from "./Fan";
 import Feedback from "./Feedback";
 import InviteSheet from "./InviteSheet";
-import { deviceName } from "../connection";
+import { deviceName, type Queued } from "../connection";
 import PlayView from "./PlayView";
 import PointsPanel from "./PointsPanel";
 import BoardScore from "./BoardScore";
 import ResultPanel from "./ResultPanel";
 import RubberOver from "./RubberOver";
-import ClaimOffer, { ClaimShown } from "./ClaimOffer";
 import GoneSheet from "./GoneSheet";
 import ScoreSheet from "./ScoreSheet";
 import SeatPicker from "./SeatPicker";
@@ -44,6 +45,7 @@ interface Props {
   error: string | null;
   connected: boolean;
   unreachable?: boolean; // no internet, and this device has no copy of the table to go on with
+  queued?: Queued | null; // a call or card still on its way to the table (connection.ts)
   send: (msg: object) => void;
   onLeave: () => void;
   onQuit?: () => void; // leave for good (Leave, then Quit table)
@@ -58,6 +60,9 @@ interface Props {
   // the table is on this phone, or on a partner's phone over the Wi-Fi (offline.ts, wifi.ts), or a bot table of this
   // phone's kept on the server for an invite (App.tsx)
   where?: "local" | "wifi" | "invite";
+  onReplay?: (spec: ReplaySpec) => void; // Play on from here, or Play this deal again, from the review at a table
+  onDone?: () => void; // a deal played again, or Your mistakes: back to where you came from
+  onSeeBoard?: (key: string) => void; // Your mistakes: the saved board a puzzle comes from
 }
 
 
@@ -86,7 +91,12 @@ export const SIZES = {
   wide: { hand: [100, 140], back: [40, 58], dummy: [80, 112], sideDummy: [76, 106] },
   // iPad held sideways: less height, so dummy's columns are a little smaller
   wideShort: { hand: [96, 134], back: [40, 58], dummy: [68, 96], sideDummy: [60, 84] },
+  // a laptop window: wide but low, so the hand and bidding box shrink to leave the table room
+  wideLow: { hand: [80, 112], back: [32, 46], dummy: [60, 84], sideDummy: [52, 74] },
+  wideLower: { hand: [72, 100], back: [32, 46], dummy: [56, 78], sideDummy: [50, 70] },
 };
+const CLAIM_TRICK = 600; // ms a finished trick of a claim is on show (CLAIM_TRICK in the server's game/room.py)
+
 export const HAND_SPREAD = 12; // degrees: only a slight fan, so every card stands nearly upright
 
 function dealtBefore(key: string): boolean {
@@ -114,7 +124,7 @@ function playedAhead(t: TableState, seat: Seat, card: string): TableState {
   };
 }
 
-export default function TableView({ state, hint, hintPending, askHint, error, connected, unreachable, send, onLeave, onQuit, onTutorialStop, onYou, initial, account, friends, inviting, where, onLocalInvite, coachOff }: Props) {
+export default function TableView({ state, hint, hintPending, askHint, error, connected, unreachable, queued, send, onLeave, onQuit, onTutorialStop, onYou, initial, account, friends, inviting, where, onLocalInvite, coachOff, onReplay, onDone, onSeeBoard }: Props) {
   const [showSettings, setShowSettings] = useState(false);
   const [offCall, setOffCall] = useState<{ call: string; why: string } | null>(null); // Learn to play: a call off the cheat sheet
   const [showInvite, setShowInvite] = useState(!!inviting);
@@ -123,8 +133,6 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
   const [showScore, setShowScore] = useState(false);
   const [picking, setPicking] = useState(false);
   const [peekLast, setPeekLast] = useState(false);
-  const [answered, setAnswered] = useState<string | null>(null); // the bot claim you just answered, closed at once
-  const [claimClosed, setClaimClosed] = useState<number | null>(null); // the board whose claim pop-up you closed
   const [hiddenHint, setHiddenHint] = useState<Hint | null>(null);
   const [openCall, setOpenCall] = useState<number | null>(null);
   const [openCard, setOpenCard] = useState<{ card: string; seat: Seat } | null>(null); // a bot's card tapped in the trick
@@ -136,13 +144,37 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
   const [justDealt, setJustDealt] = useState(false);
   const [lookedBack, setLookedBack] = useState<number | null>(null); // the board whose rubber-over sheet was closed
   const [reviewing, setReviewing] = useState<number | null>(null); // rubber scoring: the board whose review is open, past its score
+  const [answerClosed, setAnswerClosed] = useState<string | null>(null); // Your mistakes: the puzzle whose answer was closed
+  const [soFar, setSoFar] = useState(false); // Your mistakes: Tricks so far is open
   const [prefs, setPrefs] = usePrefs();
   const wide = useMedia("(min-width: 820px) and (min-height: 600px)");
   const short = useMedia("(max-height: 900px)");
+  // smaller sizes for a wide screen that is low (a laptop window, an iPad on its side with the score strip): from the
+  // window's height, then one step more at a time while the table is too short for the names and calls in it
+  const [squeeze, setSqueeze] = useState(0);
+  useEffect(() => {
+    const again = () => setSqueeze(0);
+    window.addEventListener("resize", again);
+    return () => window.removeEventListener("resize", again);
+  }, []);
+  const under800 = useMedia("(max-height: 799px)");
+  const under720 = useMedia("(max-height: 719px)");
+  const byHeight = under720 ? 2 : under800 ? 1 : 0;
+  const tier = Math.max(byHeight, squeeze);
+  const low = tier >= 1;
+  const lower = tier >= 2;
   const holdTimer = useRef<number | undefined>(undefined);
   const tblRef = useRef<HTMLDivElement>(null);
-  const topDummy = (wide ? (short ? SIZES.wideShort : SIZES.wide) : SIZES.phone).dummy;
+  const topDummy = (wide ? (lower ? SIZES.wideLower : low ? SIZES.wideLow : short ? SIZES.wideShort : SIZES.wide) : SIZES.phone).dummy;
   const dummyFit = useDummyFit(tblRef, topDummy[0], topDummy[1]); // a long suit in dummy stays clear of the trick
+  // the table's height the names and calls need while bidding, at each size (the top and bottom names, the calls in
+  // front of them, and a gap between)
+  const NEED = [250, 212, 200];
+  useLayoutEffect(() => {
+    const el = tblRef.current;
+    if (!wide || tier >= 2 || !el || !el.closest(".play-layout.bidding")) return;
+    if (el.clientHeight < NEED[tier]) setSqueeze(tier + 1);
+  });
   const tricksSeen = useRef<{ board: number; n: number }>({ board: 0, n: 0 });
   const lastPlaying = useRef<TableState | null>(null);
 
@@ -151,12 +183,10 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
   const watching = !!state?.watching;
   const board = t?.board ?? 0;
   const tricksDone = t ? t.tricks_won.NS + t.tricks_won.EW : 0;
-  const trickPause = (state?.settings.trick_pause ?? 2) * 1000;
   if (t?.phase === "playing") lastPlaying.current = t;
-  const hasOffer = !!t?.claim_offer;
-  useEffect(() => {
-    if (!hasOffer) setAnswered(null); // a later claim (after Undo, say) always shows its pop-up
-  }, [hasOffer]);
+  // a claim played out on the table goes quickly: each finished trick is on show only briefly (as the server waits)
+  const claimPlaying = !!(t?.phase === "playing" ? t.claiming : t?.phase === "done" && t.result?.claim_played);
+  const trickPause = claimPlaying ? CLAIM_TRICK : (state?.settings.trick_pause ?? 2) * 1000;
 
   // a finished trick stays in the middle for a while (the server waits as long before a bot leads)
   useEffect(() => {
@@ -195,13 +225,14 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
     window.setTimeout(() => setJustDealt(false), 600);
   }, []);
 
-  // a refused play (or one the server never answers) puts the card back in your hand
+  // a refused play puts the card back in your hand; one still on its way stays on the table until it gets there
   useEffect(() => {
     if (!sent) return;
     if (error) setSent(null);
+    if (queued) return;
     const timer = window.setTimeout(() => setSent(null), 4000);
     return () => window.clearTimeout(timer);
-  }, [sent, error]);
+  }, [sent, error, queued]);
 
   // an opened bid's meaning belongs to one board
   useEffect(() => {
@@ -246,6 +277,13 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
     send({ type: "settings", ...s });
   };
   const mine = (me === "N" || me === "S" ? 1 : -1) * state.totals.score_ns;
+  // a deal played again, or Your mistakes (puzzles): never scored, so no score in the corner
+  const rp = state.settings.replay ?? null;
+  // other people at the table: playing a deal again would leave them waiting, so it's offered in hand history instead
+  const othersHere = (["N", "E", "S", "W"] as Seat[]).some((s) => s !== state.you && !state.bots.includes(s) && !!state.players[s]);
+  const puzzle = rp?.puzzles ? rp : null;
+  const lastPuzzle = !!puzzle && (puzzle.n ?? 0) >= (puzzle.of ?? 0);
+  const nextPuzzle = () => (lastPuzzle ? (onDone ?? onLeave)() : send({ type: "puzzle_next" }));
 
   const header = (
     <header className="topbar">
@@ -253,16 +291,29 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
         ☰
       </button>
       {t && (
-        <span className="boardinfo">
-          Board {t.board} · {t.vulnerability === "None" ? "none vul" : t.vulnerability === "Both" ? "all vul" : `${t.vulnerability} vul`}
-          {where === "local" ? (
-            <span className="offline"> · local</span>
-          ) : where === "wifi" ? (
-            <span className="offline"> · on Wi-Fi</span>
-          ) : (
-            !connected && <span className="offline"> · offline</span>
-          )}
-          {state.settings.ai_coach && !coachOff && <span className="coach-note">AI coaching on</span>}
+        // each part keeps to one line; when the line is too narrow (iPhone SE) the parts wrap, and the dot that would
+        // start the new line is clipped (styles.css, .boardinfo .parts)
+        <span className="boardinfo joined">
+          <span className="parts">
+            {puzzle ? (
+              <span>
+                Your mistakes · {puzzle.n} of {puzzle.of}
+              </span>
+            ) : (
+              <span>
+                Board {t.board} · {t.vulnerability === "None" ? "none vul" : t.vulnerability === "Both" ? "all vul" : `${t.vulnerability} vul`}
+              </span>
+            )}
+            {rp && !puzzle && <span className="offline">replay</span>}
+            {where === "local" ? (
+              <span className="offline">local</span>
+            ) : where === "wifi" ? (
+              <span className="offline">on Wi-Fi</span>
+            ) : (
+              !connected && <span className="offline">offline</span>
+            )}
+            {state.settings.ai_coach && !coachOff && <span className="coach-note">AI coach</span>}
+          </span>
         </span>
       )}
       {/* top right: the score, then you (with a dot when a newer version is out) */}
@@ -271,7 +322,11 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
           <span className="avatar">{initial ?? <PersonIcon />}</span>
           {update && <span className="update-dot" aria-hidden="true" />}
         </button>
-        {state.rubber ? (
+        {puzzle ? (
+          <button className="skip" onClick={nextPuzzle}>
+            {lastPuzzle ? "Done" : "Skip"}
+          </button>
+        ) : rp ? null : state.rubber ? (
           // rubber: just this rubber's totals; the full score pad opens on a tap
           <button className="score-btn wethey" onClick={() => setShowScore(true)} aria-label="Score sheet">
             <span>We {state.rubber.totals[me === "N" || me === "S" ? "NS" : "EW"]}</span>
@@ -437,8 +492,9 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
 
   // while the last trick of the board is on show, keep the table as it was during the play
   const snap = lastPlaying.current;
-  // (not after a claim: the hands it would keep weren't played out on the table)
-  const finishing = t.phase === "done" && holding && snap !== null && snap.board === t.board && !!t.last_trick && !t.result?.claimed;
+  // (not after a claim that ended at once: the hands it would keep weren't played out on the table)
+  const finishing =
+    t.phase === "done" && holding && snap !== null && snap.board === t.board && !!t.last_trick && (!t.result?.claimed || !!t.result.claim_played);
   const atServer: TableState = finishing
     ? {
         ...snap!,
@@ -448,7 +504,7 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
         your_turn: false,
         legal_cards: [],
         turn: null,
-        claim_offer: null,
+        claiming: null,
         hands: Object.fromEntries(
           Object.entries(snap!.hands).map(([s, h]) => [s, h ? h.filter((c) => !t.last_trick!.cards.some((x) => x.card === c)) : null]),
         ) as TableState["hands"],
@@ -457,18 +513,23 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
     : t;
   // a card you tap goes onto the table at once, so your hand doesn't light up again while the server answers
   const turnKey = `${t.board}/${Object.values(t.counts).reduce((a, n) => a + n, 0)}`;
+  // Your mistakes: the answer, once given, until the player plays on; a card answer sits in the trick meanwhile
+  const answer = puzzle && !puzzle.playing_on ? puzzle.answer ?? null : null;
+  const puzzleOpen = !!puzzle && !puzzle.playing_on && !answer;
   const view: TableState =
-    sent && sent.key === turnKey && atServer.turn && atServer.your_turn
+    answer?.kind === "card" && answer.card && atServer.turn && atServer.phase === "playing"
+      ? playedAhead(atServer, atServer.turn, answer.card)
+      : sent && sent.key === turnKey && atServer.turn && atServer.your_turn
       ? playedAhead(atServer, atServer.turn, sent.card)
       : atServer;
 
-  const size = wide ? (short ? SIZES.wideShort : SIZES.wide) : SIZES.phone;
+  const size = wide ? (lower ? SIZES.wideLower : low ? SIZES.wideLow : short ? SIZES.wideShort : SIZES.wide) : SIZES.phone;
   const bidding = view.phase === "bidding";
   const myTurnToPlay = view.phase === "playing" && view.your_turn;
   const playable = (s: Seat) => (myTurnToPlay && view.turn === s ? view.legal_cards : []);
   const play = (card: string) => {
     endHold();
-    setSent({ card, key: turnKey });
+    if (!puzzleOpen) setSent({ card, key: turnKey }); // a puzzle's answer is shown from the server's answer instead
     send({ type: "play", card });
   };
   const shownHint = hint && hint !== hiddenHint && view.your_turn ? hint : null;
@@ -584,19 +645,25 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
   // during the play dummy is "dummy", not the bot or player sitting there
   const isDummy = (s: Seat) => view.phase === "playing" && s === view.dummy && s !== me;
   const playName = (s: Seat) => (isDummy(s) ? "Dummy" : nameOf(s));
-  const banner = winner && winCard && (
+  const claiming = view.claiming ?? (finishing ? snap!.claiming : null);
+  const claimNotice = claiming && (claiming.by === me ? "You claim the rest" : `${nameOf(claiming.by)} claims the rest`);
+  const banner = claimNotice ? (
+    claimNotice
+  ) : winner && winCard && (
     <>
       <SuitText text={`${playName(winner)} wins with ${cardLabel(winCard)}`} /> · tap to go on
       <span className="holdbar" style={{ animationDuration: `${trickPause}ms` }} />
     </>
   );
 
-  const offer = view.claim_offer;
   const status = (() => {
-    if (view.phase === "done" || !view.turn) return ""; // no one to wait for, as while the last trick is on show
-    if (offer) {
-      const left = offer.waiting.filter((s) => s !== me).map(nameOf);
-      return `${nameOf(offer.by)} claims the rest${left.length ? ` · waiting for ${left.join(" and ")}…` : ""}`;
+    // no one to wait for, as while the last trick is on show or a claim plays out (its notice is on the felt)
+    if (view.phase === "done" || !view.turn || claimNotice) return "";
+    if (view.your_turn && puzzleOpen) {
+      // Your mistakes asks the question the board asked then
+      if (bidding) return "Your call?";
+      const what = view.turn === me ? "your play" : isDummy(view.turn as Seat) ? "play from dummy" : `play from ${nameOf(view.turn as Seat)}'s hand`;
+      return `Trick ${puzzle?.trick ?? tricksDone + 1}: ${what}?`;
     }
     if (view.your_turn) {
       if (bidding) return "Your call";
@@ -609,7 +676,7 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
       : `${nameOf(view.controller)} to play from ${turn === view.dummy ? "dummy" : `${nameOf(turn)}'s hand`}`;
     return watching ? who : `${who}…`;
   })();
-  const hintButton = view.your_turn && state.settings.hints && !shownHint && (
+  const hintButton = view.your_turn && state.settings.hints && !shownHint && !puzzleOpen && (
     <button className="chip" disabled={hintPending} aria-busy={hintPending} onClick={askHint}>
       {hintPending ? "Thinking…" : "Hint"}
     </button>
@@ -663,7 +730,11 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
   ) : opened?.why ? (
     <BidWhy entry={opened} index={openCall!} room={state.room} board={view.board} onClose={() => setOpenCall(null)} />
   ) : null;
-  const bidNote = opened && !opened.why ? (
+  const bidNote = queued?.slow ? (
+    <span className="text sending">
+      <SuitText text={`Waiting for connection to send ${queued.card ? cardLabel(queued.card) : callLabel(queued.call ?? "")}…`} />
+    </span>
+  ) : opened && !opened.why ? (
     <>
       <span className="text">
         <strong>{nameOf(opened.seat)}</strong>: <SuitText text={callLabel(opened.call)} />
@@ -678,6 +749,16 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
       </span>
       <button className="chip" onClick={() => setOpenCall(null)}>
         OK
+      </button>
+    </>
+  ) : answer && puzzle && answerClosed === `${puzzle.key}/${puzzle.n}` ? (
+    <>
+      <span className="text yours">
+        {answer.right ? "Right" : "Better"}:{" "}
+        <SuitText text={answer.kind === "card" ? cardLabel(answer.right ? answer.card! : answer.better!) : callLabel(answer.right ? answer.call! : answer.system_call!)} />
+      </span>
+      <button className="chip" onClick={() => setAnswerClosed(null)}>
+        Answer
       </button>
     </>
   ) : shownHint ? (
@@ -702,8 +783,12 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
           Cheat sheet
         </a>
       )}
-      {/* Claim, Last trick, Hint, Undo */}
-      {view.phase === "playing" && view.last_trick && (
+      {/* Claim, Last trick, Hint, Undo; at a puzzle, Tricks so far instead, as the player didn't see them played */}
+      {puzzleOpen && view.phase === "playing" && (view.played?.length ?? 0) > 0 ? (
+        <button className="chip" onClick={() => setSoFar(true)}>
+          Tricks so far
+        </button>
+      ) : view.phase === "playing" && view.last_trick && (
         <button className="chip" onClick={() => setPeekLast(!peekLast)}>
           {peekLast ? "Hide" : "Last trick"}
         </button>
@@ -723,12 +808,6 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
   const showResult = t.phase === "done" && t.result && !finishing;
   const endedRubber = showResult ? state.rubber?.finished.find((f) => f.board === t.board) : undefined;
   // a player sees the rubber's end on the score that comes first; a watcher sees it over the review
-  // a claim made without you seeing the cards (a bot partner's, say): show them once, before the board's result
-  const claimRes = view.phase === "done" ? view.result : null;
-  const claimShown =
-    claimRes?.claimed && claimRes.claim_cards && state.you && !claimRes.claim_saw?.includes(state.you) && claimClosed !== view.board
-      ? claimRes
-      : null;
   const rubberOver = endedRubber && !state.you && lookedBack !== t.board ? endedRubber : undefined;
   // rubber scoring: a player sees the score first, then the review if they ask for it
   const scoreFirst = showResult && !!state.rubber && !!state.you && reviewing !== t.board;
@@ -751,26 +830,13 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
   };
 
   return (
-    <div className={`app ${wide ? "wide" : ""} ${wide && short ? "short" : ""}`}>
+    <div className={`app ${wide ? "wide" : ""} ${wide && short ? "short" : ""} ${wide && low ? "low" : ""} ${wide && lower ? "lower" : ""}`}>
       {header}
       {practiceBar}
       {watchBar}
       {goneBar}
       {goneSheet}
 
-      {offer?.you_decide && !watching && answered !== `${view.board}/${offer.by}/${offer.tricks}` && (
-        <ClaimOffer
-          offer={offer}
-          nameOf={nameOf}
-          onAnswer={(accept) => {
-            setAnswered(`${view.board}/${offer.by}/${offer.tricks}`);
-            send({ type: "claim_answer", accept });
-          }}
-        />
-      )}
-      {claimShown && (
-        <ClaimShown result={claimShown} dummy={view.contract ? partnerOf(view.contract.declarer) : null} nameOf={nameOf} onClose={() => setClaimClosed(view.board)} />
-      )}
       {rubberOver && (
         <RubberOver
           rubber={rubberOver}
@@ -797,9 +863,16 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
           me={me}
           nameOf={nameOf}
           watching={watching}
-          onNext={state.you ? next : undefined}
-          canNext={canNext}
-          nextLabel={nextLabel}
+          onNext={!state.you ? undefined : puzzle ? nextPuzzle : rp ? onDone ?? onLeave : next}
+          canNext={rp ? true : canNext}
+          nextLabel={puzzle ? (lastPuzzle ? "Done" : "Next") : rp ? "Done" : nextLabel}
+          onReplay={
+            !state.you || !t.result
+              ? undefined
+              : rp
+              ? (from) => send({ type: "replay", from }) // the same table plays it again
+              : onReplay && !othersHere ? ((from) => onReplay(replaySpec({ ...t.result!, dealer: t.dealer, vulnerability: t.vulnerability }, me, from, state.settings))) : undefined
+          }
           onScore={state.rubber && state.you ? () => setReviewing(null) : undefined}
           onUndo={undoOn && t.can_undo ? undo : undefined}
           help={state.help}
@@ -849,7 +922,7 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
                   hinted={hintedCall}
                   onCall={call}
                   onLook={lookAt}
-                  disabled={!view.your_turn}
+                  disabled={!view.your_turn || !!queued}
                   note={bidNote}
                 />
                 <PointsPanel
@@ -907,7 +980,7 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
             </div>
           </details>
         )}
-        {state.history
+        {(rp ? [] : state.history) // a deal played again isn't a board of this table's
           .slice(-5)
           .reverse()
           .map((h) => (
@@ -924,6 +997,33 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
       {whyPopup}
       {offSheet}
       {picker}
+      {answer && puzzle && answerClosed !== `${puzzle.key}/${puzzle.n}` && (
+        <PuzzleSheet
+          answer={answer}
+          last={lastPuzzle}
+          fromDummy={answer.seat !== me && answer.seat === view.dummy}
+          onNext={nextPuzzle}
+          onRetry={() => send({ type: "puzzle_retry" })}
+          onRemove={() => send({ type: "puzzle_remove" })}
+          onPlayOn={() => send({ type: "play_on" })}
+          onAgain={() => send({ type: "replay" })}
+          onBoard={onSeeBoard && puzzle.key ? () => onSeeBoard(puzzle.key!) : undefined}
+          onClose={() => setAnswerClosed(`${puzzle.key}/${puzzle.n}`)}
+        />
+      )}
+      {soFar && view.played && (
+        <div className="sheet-backdrop" onClick={() => setSoFar(false)}>
+          <div className="sheet" role="dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-top">
+              <h2>Tricks so far</h2>
+              <button className="close" aria-label="Close" onClick={() => setSoFar(false)}>
+                ✕
+              </button>
+            </div>
+            <PlayView play={view.played} whys={view.card_why ?? {}} dummy={view.dummy} contract={view.contract} room={state.room} board={view.board} />
+          </div>
+        </div>
+      )}
       {error && <div className="toast">{error}</div>}
     </div>
   );

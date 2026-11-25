@@ -11,6 +11,8 @@ import Lobby from "./components/Lobby";
 import MyStats from "./components/MyStats";
 import TableView from "./components/TableView";
 import Tutorial from "./components/Tutorial";
+import { SavedBoardPage } from "./components/SavedBoard";
+import type { ReplaySpec } from "./types";
 
 export default function App() {
   const account = useAccount();
@@ -36,15 +38,47 @@ export default function App() {
   const [statsOpen, setStatsOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [inviting, setInviting] = useState(false); // the lobby's Invite, for a friend with notifications off
-  const [myTable, setMyTable] = useState<string | null>(null); // a table you're seated at, for "Back to your table"
+  const [hub, setHub] = useState(false); // Learn & practice, open on the home screen
   const [learning, setLearning] = useState(() => new URLSearchParams(location.search).has("learn")); // Learn to play
   const [connectAI] = useState(() => new URLSearchParams(location.search).get("connect")); // an AI app's Allow page
+  const [savedBoard, setSavedBoard] = useState<string | null>(null); // Your mistakes: See the whole board
   const sendRef = useRef<(msg: object) => void>(() => {});
+  // a deal played again, or Your mistakes, is a side trip: done, its table ends and you're back where you were
+  const endReplay = () => {
+    const s = session;
+    if (s?.token)
+      void fetch("/api/rooms/quit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: s.room, token: s.token }) }).catch(() => {});
+    setSavedBoard(null);
+    const back = s?.back;
+    history.replaceState(null, "", back && !back.local && !back.wifi ? `/?room=${back.room}` : "/");
+    update(back ?? null);
+  };
+  // Play on from here, or Play this deal again: a table of its own with the same cards and bots in the other seats
+  const startReplay = async (spec: ReplaySpec | null, kind?: string) => {
+    const s = sessionRef.current;
+    try {
+      const res = await fetch(spec ? "/api/rooms" : "/api/puzzles/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(account.token ? { Authorization: `Bearer ${account.token}` } : {}) },
+        body: JSON.stringify(spec ? { replay: spec } : kind ? { kind } : {}),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.detail || "Can't reach the server");
+      if (s?.local) retireEngine(); // the table on this phone waits for you to come back
+      const back = s && !s.replay && !s.watch && !s.wifi ? s : undefined;
+      const name = account.user?.name ?? s?.name ?? (localStorage.getItem("bridge-name") || "You");
+      setStatsOpen(false);
+      history.replaceState(null, "", `/?room=${body.code}`);
+      update({ room: body.code, name, solo: true, auth: account.token ?? undefined, replay: true, back });
+    } catch (e) {
+      setToast((e as Error).message || "Can't reach the server");
+    }
+  };
   const leave = () => {
+    if (session?.replay) return endReplay();
     sendRef.current({ type: "away" }); // so opening the app on another device shows the lobby, not this table
     if (session?.local) retireEngine();
     if (session?.wifi) leaveWifi();
-    else if (session && !session.watch && !session.local) setMyTable(session.room);
     update(null);
     history.replaceState(null, "", "/");
   };
@@ -53,11 +87,10 @@ export default function App() {
     retireEngine();
     forgetTable();
     setNotice(message);
-    setMyTable(null);
     update(null);
     history.replaceState(null, "", "/");
   };
-  // a table on this phone, opened again (Back to your table, or the app reopened at it): was it closed meanwhile?
+  // a table on this phone, opened again (Play under Your tables, or the app reopened at it): was it closed meanwhile?
   useEffect(() => {
     if (!session?.local) return;
     const room = session.room;
@@ -82,6 +115,7 @@ export default function App() {
   const quit = () => {
     const s = session;
     if (!s) return;
+    if (s.replay) return endReplay();
     if (s.local) {
       retireEngine();
       forgetTable();
@@ -89,13 +123,11 @@ export default function App() {
     if (s.wifi) leaveWifi();
     else if (s.token && !s.watch)
       void fetch("/api/rooms/quit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: s.room, token: s.token }) }).catch(() => {});
-    setMyTable(null);
     update(null);
     history.replaceState(null, "", "/");
   };
-  const { state, error, connected, unreachable, send, hint, hintPending, askHint, moved, takeBack } = useRoom(session, (s) => update(s), (message) => {
+  const { state, error, connected, unreachable, send, hint, hintPending, askHint, moved, takeBack, queued } = useRoom(session, (s) => update(s), (message) => {
     setNotice(message);
-    setMyTable(null);
     if (session?.local) forgetTable(); // the table on this phone can't go on
     update(null);
     history.replaceState(null, "", "/");
@@ -277,10 +309,10 @@ export default function App() {
         .then((t) => {
           const now = sessionRef.current;
           if (t.room && t.snap && offlineReady()) keepCarry(t.room, t.snap); // to carry on with if the internet drops
-          if (t.room && t.jump && t.room !== now?.room) {
+          if (t.room && t.jump && t.room !== now?.room && !now?.replay) {
             history.replaceState(null, "", `/?room=${t.room}`);
             update({ room: t.room, name: user.name, auth: token });
-          } else if (!now) setMyTable(t.room ?? null);
+          }
         })
         .catch(() => {});
     };
@@ -380,7 +412,7 @@ export default function App() {
   if (statsOpen && account.user)
     return (
       <>
-        <MyStats account={account} onClose={() => setStatsOpen(false)} back={session ? "Table" : "Lobby"} />
+        <MyStats account={account} onClose={() => setStatsOpen(false)} back={session ? "Table" : "Lobby"} onReplay={(spec) => void startReplay(spec)} />
         {overlays}
       </>
     );
@@ -419,8 +451,10 @@ export default function App() {
       <>
         <Lobby
           onLearn={() => setLearning(true)}
+          onPuzzles={(kind) => void startReplay(null, kind)}
+          hub={hub}
+          onHub={setHub}
           notice={notice}
-          myTable={myTable}
           account={account}
           friends={friends}
           onAccount={() => setAccountOpen(true)}
@@ -433,10 +467,20 @@ export default function App() {
         {overlays}
       </>
     );
+  if (savedBoard && account.user)
+    return (
+      <>
+        <SavedBoardPage account={account} boardKey={savedBoard} back="Your mistakes" onClose={() => setSavedBoard(null)} />
+        {overlays}
+      </>
+    );
   return (
     <>
       <TableView
         key={session.room}
+        onReplay={(spec) => void startReplay(spec)}
+        onDone={endReplay}
+        onSeeBoard={setSavedBoard}
         onLocalInvite={inviteFromHere}
         coachOff={coachOff}
         state={state}
@@ -446,6 +490,7 @@ export default function App() {
         error={error}
         connected={connected}
         unreachable={unreachable}
+        queued={queued}
         send={send}
         onLeave={leave}
         onQuit={session?.watch ? undefined : quit}

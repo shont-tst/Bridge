@@ -191,7 +191,7 @@ class Accounts:
 
     def remove_user(self, user_id: str) -> None:
         """An account and everything kept for it: passkeys, friend code, friends (on both sides), invites it made and
-        its saved boards and AI app connections. Suggestions it sent stay, under the name it had."""
+        its saved boards, Your mistakes progress and AI app connections. Suggestions it sent stay, under the name it had."""
         user = self.user(user_id)
         for other in list(self.links(user_id)):
             self.unfriend(user_id, other)
@@ -200,6 +200,8 @@ class Accounts:
             self.store.delete("usercreds", user_id, cred_id)
         for key, _ in self.store.query("boards", user_id):
             self.store.delete("boards", user_id, key)
+        for pid, _ in self.store.query("puzzles", user_id):  # Your mistakes (puzzles.py)
+            self.store.delete("puzzles", user_id, pid)
         for grant, _ in self.store.query("aigrants", user_id):  # AI apps connected to it (connector.py)
             self.store.delete("aigrants", user_id, grant)
         for code, inv in self.store.query("invites", "i"):

@@ -42,6 +42,16 @@ def test_the_page_and_manifest_carry_the_name(monkeypatch):
     assert manifest["start_url"] == "/" and manifest["icons"]
 
 
+def test_the_page_carries_the_source_link_only_when_set(monkeypatch):
+    monkeypatch.delenv("BRIDGE_SOURCE_URL", raising=False)
+    assert '<meta name="source-url" content="" />' in app_module.named_page((WEB / "index.html").read_text())
+    monkeypatch.setenv("BRIDGE_SOURCE_URL", " https://github.com/owner/name?a=1&b=2 ")
+    page = app_module.named_page((WEB / "index.html").read_text())
+    assert '<meta name="source-url" content="https://github.com/owner/name?a=1&amp;b=2" />' in page
+    monkeypatch.setenv("BRIDGE_SOURCE_URL", "javascript:alert(1)")  # only a web address becomes a link
+    assert site.source_url() is None
+
+
 def test_the_server_sends_the_named_page(tmp_path, monkeypatch):
     (tmp_path / "index.html").write_text((WEB / "index.html").read_text())
     (tmp_path / "manifest.webmanifest").write_text((WEB / "public" / "manifest.webmanifest").read_text())

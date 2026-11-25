@@ -99,10 +99,17 @@ async function hint(page, wait) {
     }
     await shot(page, "review");
 
+    const hub = await open(browser, base, token);
+    await click(hub.getByRole("button", { name: /^Learn & practice/ }));
+    await hub.waitForTimeout(2000);
+    await shot(hub, "practice");
+
     const guest = await open(browser, base, null);
     await click(guest.getByRole("button", { name: "Play as a guest" }));
     await guest.waitForTimeout(1500);
-    await click(guest.getByRole("button", { name: "Learn to play" }));
+    await click(guest.getByRole("button", { name: "Learn & practice" }));
+    await guest.waitForTimeout(1000);
+    await click(guest.getByRole("button", { name: /^Learn to play/ }));
     await guest.waitForTimeout(1500);
     await click(guest.getByRole("button", { name: "None of these" }));
     await click(guest.getByRole("button", { name: "Start" }));

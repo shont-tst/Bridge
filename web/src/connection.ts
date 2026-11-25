@@ -16,6 +16,8 @@ export interface Session {
   wifi?: boolean; // the table is on a partner's phone, joined over the Wi-Fi (wifi.ts)
   stay?: boolean; // a bot table moved to the server for an invite: it stays there
   followed?: boolean; // this phone's table moved to the server because another device carried on with it
+  replay?: boolean; // a deal played again, or Your mistakes: a side trip, never "your table"
+  back?: Session; // the table to go back to when the replay is done
 }
 
 /** What the table talks to: the server's WebSocket, or the table on this phone (offline.ts). */
@@ -70,11 +72,33 @@ export function deviceName(): string {
   return "";
 }
 
+/** A call or card waiting to reach the table. On a poor connection it is sent again each time the app connects,
+ * until the table answers: `id` makes sure it counts once, and `at` (the table as it was when tapped) that it isn't
+ * made later at a moment it wasn't meant for. `slow`: no answer yet after a moment, so the table says it's waiting. */
+export interface Queued {
+  type: "call" | "play";
+  call?: string;
+  card?: string;
+  id: string;
+  at: string;
+  slow: boolean;
+}
+
+function stepKey(st: RoomState | null): string {
+  const t = st?.table;
+  return t && typeof t.step === "number" ? `${t.board}/${t.step}` : "";
+}
+
 function decisionKey(st: RoomState): string {
   const t = st.table;
   if (!t) return "";
   const cards = Object.values(t.counts).reduce((a, n) => a + n, 0);
   return `${t.board}/${t.auction.length}/${cards}`;
+}
+
+function wire(q: Queued): object {
+  const { slow: _slow, ...msg } = q;
+  return msg;
 }
 
 /** One WebSocket to the room; reconnects automatically and reclaims the seat by token. */
@@ -90,6 +114,9 @@ export function useRoom(session: Session | null, onSession: (s: Session) => void
   const [moved, setMoved] = useState<string | null>(null); // the device the game moved to, e.g. "iPad"
   const [unreachable, setUnreachable] = useState(false); // the server isn't answering and there's no copy here to go on with
   const [attempt, setAttempt] = useState(0); // goes up with Continue here, to connect again and take the game back
+  const [queued, setQueued] = useState<Queued | null>(null);
+  const queueRef = useRef<{ msg: Queued; slow?: number } | null>(null);
+  const stateRef = useRef<RoomState | null>(null);
   const hintAsked = useRef<string | null>(null); // the decision the hint being worked out is for
   const wsRef = useRef<Sock | null>(null);
   const keyRef = useRef("");
@@ -101,6 +128,15 @@ export function useRoom(session: Session | null, onSession: (s: Session) => void
   goneRef.current = onGone;
   const localRef = useRef(onLocal);
   localRef.current = onLocal;
+
+  // the call or card got there (or the table moved on without it): stop sending it
+  const unqueue = useCallback((id?: string) => {
+    const q = queueRef.current;
+    if (!q || (id && q.msg.id !== id)) return;
+    clearTimeout(q.slow);
+    queueRef.current = null;
+    setQueued(null);
+  }, []);
 
   useEffect(() => {
     if (!session) return;
@@ -137,6 +173,8 @@ export function useRoom(session: Session | null, onSession: (s: Session) => void
           user: s.local || s.wifi ? s.user : undefined,
         }));
         first = false;
+        const q = queueRef.current; // still waiting to get through: send it again (the server makes it only once)
+        if (q) ws.send(JSON.stringify(wire(q.msg)));
       };
       ws.onmessage = (ev) => {
         if (waiting !== undefined) {
@@ -158,6 +196,9 @@ export function useRoom(session: Session | null, onSession: (s: Session) => void
         } else if (msg.type === "state") {
           const st = msg as RoomState;
           if (typeof st.rev === "number") revRef.current = st.rev;
+          stateRef.current = st;
+          const q = queueRef.current;
+          if (q && stepKey(st) !== q.msg.at) unqueue(); // made, or the table moved on (the server then says so)
           if (!sessionRef.current?.local && !sessionRef.current?.wifi && Object.keys(st.players).length > 1) forgetCarry(); // others' cards: not here
           setState(st);
           // a hint is for one decision: retire it once anyone calls or plays
@@ -167,6 +208,8 @@ export function useRoom(session: Session | null, onSession: (s: Session) => void
             setHintPending(false);
           }
           keyRef.current = key;
+        } else if (msg.type === "ack") {
+          unqueue(msg.id);
         } else if (msg.type === "hint") {
           // a hint that arrives after the play moved on is for a decision already made
           if (hintAsked.current === keyRef.current) setHint(msg as Hint);
@@ -180,6 +223,7 @@ export function useRoom(session: Session | null, onSession: (s: Session) => void
           stopped = true; // retrying can't help
           goneRef.current(msg.message);
         } else if (msg.type === "error") {
+          if (msg.id) unqueue(msg.id);
           setHintPending(false);
           setError(msg.message);
           setTimeout(() => setError(null), 4000);
@@ -213,6 +257,9 @@ export function useRoom(session: Session | null, onSession: (s: Session) => void
     checkRef.current = check;
     const onShow = () => document.visibilityState === "visible" && check();
     const beat = window.setInterval(onShow, 20000);
+    // a call or card still waiting: check the connection every few seconds rather than every 20, so it goes as soon
+    // as the connection is back
+    const nudge = window.setInterval(() => queueRef.current && check(), 3000);
     document.addEventListener("visibilitychange", onShow);
     window.addEventListener("pageshow", onShow);
     window.addEventListener("online", check);
@@ -222,9 +269,11 @@ export function useRoom(session: Session | null, onSession: (s: Session) => void
     connect();
     return () => {
       stopped = true;
+      unqueue(); // another table, or this one somewhere else: a call or card meant for the old one mustn't follow
       if (retry) clearTimeout(retry);
       if (waiting) clearTimeout(waiting);
       clearInterval(beat);
+      clearInterval(nudge);
       document.removeEventListener("visibilitychange", onShow);
       window.removeEventListener("pageshow", onShow);
       window.removeEventListener("online", check);
@@ -235,10 +284,25 @@ export function useRoom(session: Session | null, onSession: (s: Session) => void
 
   const send = useCallback((msg: object) => {
     const ws = wsRef.current;
+    const kind = (msg as { type?: string }).type;
+    const at = stepKey(stateRef.current);
+    if ((kind === "call" || kind === "play") && at) {
+      // held until the table answers, and sent again if the connection drops before it does
+      if (queueRef.current) return; // one at a time: the first is still on its way
+      const q: Queued = { ...(msg as { call?: string; card?: string }), type: kind, at, slow: false,
+        id: Math.random().toString(36).slice(2, 10) + Date.now().toString(36) };
+      const slow = window.setTimeout(() => {
+        if (queueRef.current?.msg.id !== q.id) return;
+        queueRef.current.msg = { ...q, slow: true };
+        setQueued(queueRef.current.msg);
+      }, 1500);
+      queueRef.current = { msg: q, slow };
+      setQueued(q);
+      msg = wire(q);
+    }
     if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg)); // open
     // after a call, card, claim or Undo, check soon that the table's answer arrived (a ping tells, see pong)
-    const kind = (msg as { type?: string }).type;
-    if (kind && ["call", "play", "undo", "claim", "claim_answer", "next_board"].includes(kind)) {
+    if (kind && ["call", "play", "undo", "claim", "next_board"].includes(kind)) {
       window.setTimeout(() => checkRef.current(), 2000);
     }
   }, []);
@@ -252,5 +316,5 @@ export function useRoom(session: Session | null, onSession: (s: Session) => void
 
   const takeBack = useCallback(() => setAttempt((n) => n + 1), []);
 
-  return { state, error, connected, unreachable, send, hint, hintPending, askHint, moved, takeBack };
+  return { state, error, connected, unreachable, send, hint, hintPending, askHint, moved, takeBack, queued };
 }

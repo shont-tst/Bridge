@@ -648,3 +648,18 @@ def test_a_saved_board_comes_with_its_auction_explained(client):
     assert [(a["seat"], a["call"]) for a in rec["auction"]] == [("N", "1N"), ("E", "P"), ("S", "3N"), ("W", "P"),
                                                                ("N", "P"), ("E", "P")]
     assert "balanced" in rec["auction"][0]["meaning"]["text"]
+
+
+def test_your_tables_lists_and_quits_your_tables(client):
+    assert client.get("/api/me/tables").status_code == 401
+    avery, _ = sign_up(client, "Avery")
+    h = auth(avery["token"])
+    code = client.post("/api/rooms", headers=h).json()["code"]
+    with client.websocket_connect(f"/ws/{code}") as ws:
+        ws.send_json({"type": "join", "auth": avery["token"], "solo": True, "device": "p1", "takeover": True})
+        next_of(ws, "joined")
+    assert [t["room"] for t in client.get("/api/me/tables", headers=h).json()["tables"]] == [code]
+    assert client.post("/api/me/tables/claim", headers=h).status_code == 404  # no bot table on another phone
+    assert client.post("/api/me/tables/quit", headers=h, json={"room": code.lower()}).json() == {"ok": True}
+    assert client.get("/api/me/tables", headers=h).json()["tables"] == []
+    assert client.post("/api/me/tables/quit", headers=h, json={"room": code}).status_code == 404

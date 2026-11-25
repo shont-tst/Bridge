@@ -5,6 +5,7 @@ only what that seat may see, and bots receive a BotView (see bots/view.py).
 """
 from __future__ import annotations
 
+import copy
 import random
 import time
 from dataclasses import dataclass, field, replace
@@ -45,8 +46,7 @@ class BoardResult:
     claimed: str | None = None  # the seat whose side claimed the last tricks
     claimed_tricks: int | None = None  # how many tricks the claim took
     claim_cards: dict | None = None  # the claiming side's cards when it claimed: {seat: [cards]} (declarer and dummy)
-    claim_saw: list | None = None  # the seats that saw those cards as the claim was made (claimer, whoever accepted)
-    claim_accepted: str | None = None  # who accepted a bot's claim: the first to accept settles it
+    claim_played: bool = False  # the claim's cards were played out on the table, for everyone to watch
     asked: list | None = None  # the calls and cards made right after a hint or AI coach question (review.asked_marks)
     finished_at: float = field(default_factory=time.time)
 
@@ -204,10 +204,9 @@ class Table:
         self.actions: list[tuple[str, str, str]] = []  # (who acted, "call", "card" or "claim", what), for undo
         self.fixed = 0  # the first actions, made for the player before the board starts (leads practice), can't be undone
         self._claim: tuple[int, bool] | None = None  # (len(actions), can claim) for the position last asked about
-        # a bot's claim waiting on the people on the other side: {"by": the bot claiming, "deciders": [seats],
-        # "accepted": [seats]}. Bots don't act while it waits.
-        self.claim_offer: dict | None = None
-        self.claim_refused: set[str] = set()  # bots whose claim was rejected this board: they play it out
+        # a claim being played out on the table, a card at a time like a bot's: {"by": the claimer, "tricks": how many
+        # it takes, "cards": the claimer's side's cards as it claimed, "rest": the cards still to play, in order}
+        self.claiming: dict | None = None
         self._why: dict[tuple, dict] = {}  # a bot's reasons for a call, by engine and the calls up to it
         self.card_why: dict[str, dict] = {}  # how a bot picked each card it played this board, by card
 
@@ -237,8 +236,8 @@ class Table:
         return None if s is None else self.controller_of(s)
 
     def is_bot_turn(self) -> bool:
-        if self.claim_offer:
-            return False
+        if self.claiming:
+            return True  # the claim's cards play themselves
         c = self.controller_to_act()
         return c is not None and c in self.bot_seats
 
@@ -267,8 +266,8 @@ class Table:
         seat = self.play.next_to_play
         if controller != self.controller_of(seat):
             raise ValueError(f"it is {seat}'s turn to play")
-        if self.claim_offer:
-            raise ValueError("accept or reject the claim first")
+        if self.claiming:
+            raise ValueError("the claim is being played out")
         self.play.play(card)
         self.actions.append((controller, "card", card))
         if self.play.is_complete():
@@ -284,86 +283,69 @@ class Table:
 
     def can_claim(self, controller: str | None) -> bool:
         """Whether the person `controller` may tap Claim now (bots claim through `bot_step`)."""
-        return controller not in self.bot_seats and not self.claim_offer and self._certain(controller)
+        return controller not in self.bot_seats and not self.claiming and self._certain(controller)
 
-    def claim(self, controller: str, saw: list[str] | None = None) -> None:
-        """Take every remaining trick: the rest of the hand is played out along the sure line, the other side
-        playing its lowest cards, so the review and the hand history see a whole hand.
+    def claim(self, controller: str, at_once: bool | None = None) -> None:
+        """Take every remaining trick. A claim is only allowed when every card wins in any order, so nobody is asked to
+        agree to it. The rest of the hand is played along the sure line, the other side playing its lowest cards, so
+        the review and the hand history see a whole hand.
 
-        The claiming side's cards are kept on the result, so the people who didn't see them as the claim was made
-        (a bot partner's claim on defense, say, with only bots to decide it) get a pop-up of them.
-        `saw` lists the seats that did: the claimer and anyone who accepted it."""
-        if self.claim_offer or not self._certain(controller):
+        A person's claim with only bots at the table ends the hand at once. Otherwise (a bot's claim, or other people
+        at the table) the cards are played out on the table a card at a time by `bot_step`, so everyone sees them.
+        `at_once` overrides that: a restored or undone board replays its claim at once."""
+        if self.claiming or not self._certain(controller):
             raise ValueError("you can claim only when every remaining trick is certain")
+        if at_once is None:
+            at_once = controller not in self.bot_seats and set(SEATS) - self.bot_seats <= {controller}
         seat = self.play.next_to_play
-        left = self.tricks_left()
         decl = self.contract.declarer
         shown = [decl, self.play.dummy] if same_side(controller, decl) else [controller]
-        cards = {s: list(self.play.hands[s]) for s in shown if self.play.hands[s]}
-        play_claim(self.play)
+        claim = {"by": controller, "tricks": self.tricks_left(),
+                 "cards": {s: list(self.play.hands[s]) for s in shown if self.play.hands[s]}}
         self.actions.append((controller, "claim", seat))
+        if at_once:
+            play_claim(self.play)
+            self._claimed(claim, played=False)
+            return
+        rest = copy.deepcopy(self.play)
+        play_claim(rest)
+        claim["rest"] = [c for _, c in rest.played_cards()[len(self.play.played_cards()):]]
+        self.claiming = claim
+
+    def _claimed(self, claim: dict, played: bool) -> None:
+        self.claiming = None
         self._finish()
-        self.result.claimed = controller
-        self.result.claimed_tricks = left
-        self.result.claim_cards = cards
-        self.result.claim_saw = sorted(set(saw or []) | {controller})
+        self.result.claimed = claim["by"]
+        self.result.claimed_tricks = claim["tricks"]
+        self.result.claim_cards = claim["cards"]
+        self.result.claim_played = played
 
     def tricks_left(self) -> int:
         return 13 - len(self.play.completed_tricks()) if self.play else 0
 
     def _bot_claim(self, controller: str) -> dict | None:
-        """A bot to play claims when every remaining trick is certain (two or more of them, and not after a
-        rejected claim this board). The people on the other side accept or reject it, but never dummy (dummy
-        doesn't approve a claim); with nobody there to decide, it goes ahead at once. A person in dummy's seat who is
-        playing both hands (a bot partner declared, see controller_of) is the declarer in all but name, so decides."""
-        if not self.bot_claims or controller in self.claim_refused or self.tricks_left() < 2 \
-                or not self._certain(controller):
+        """A bot to play claims when every remaining trick is certain (two or more of them). Its cards are then played
+        out on the table for everyone to see."""
+        if not self.bot_claims or self.tricks_left() < 2 or not self._certain(controller):
             return None
-        dummy_sits_out = not self._human_declares_for_bot()
-        deciders = sorted(s for s in SEATS if s not in self.bot_seats and not same_side(s, controller)
-                          and not (s == self.play.dummy and dummy_sits_out))
-        if not deciders:
-            self.claim(controller)
-            return {"seat": controller, "claim": True}
-        self.claim_offer = {"by": controller, "deciders": deciders, "accepted": []}
-        return {"seat": controller, "claim_offer": True}
+        self.claim(controller, at_once=False)
+        return {"seat": controller, "claim": True}
 
-    def answer_claim(self, seat: str, accept: bool) -> None:
-        """A person on the other side accepts or rejects a bot's claim. The first to answer settles
-        it: an Accept takes the claim at once, so they go straight on to the score, while a partner who hadn't
-        answered gets the claimer's cards in a pop-up to look over (they're not in claim_saw); a Reject plays the
-        hand out (and that bot doesn't claim again this board)."""
-        offer = self.claim_offer
-        if not offer:
-            raise ValueError("there's no claim to answer")
-        if seat not in offer["deciders"]:
-            raise ValueError("the other side decides on this claim")
-        self.claim_offer = None
-        if not accept:
-            self.claim_refused.add(offer["by"])
-            return
-        self.claim(offer["by"], saw=[seat])
-        self.result.claim_accepted = seat
-
-    def claim_offer_for(self, viewer: str | None) -> dict | None:
-        offer = self.claim_offer
-        if not offer:
-            return None
-        by = offer["by"]
-        dummy = self.play.dummy if by == self.contract.declarer else None
-        return {"by": by, "tricks": self.tricks_left(), "cards": list(self.play.hands[by]),
-                "dummy": by == self.contract.declarer,
-                # declarer's claim counts dummy's cards too: show them in the pop-up, which can cover dummy
-                "dummy_cards": list(self.play.hands[dummy]) if dummy else None,
-                "you_decide": viewer in offer["deciders"] and viewer not in offer["accepted"],
-                "waiting": [s for s in offer["deciders"] if s not in offer["accepted"]]}
+    def _claim_card(self) -> dict:
+        """Play the next card of the claim being played out."""
+        seat = self.play.next_to_play
+        card = self.claiming["rest"].pop(0)
+        self.play.play(card)
+        if self.play.is_complete():
+            self._claimed(self.claiming, played=True)
+        return {"seat": seat, "card": card}
 
     def replay(self, who: str, kind: str, what: str) -> None:
         """Apply one saved action again (undo and restoring a saved table)."""
         if kind == "call":
             self.make_call(who, what)
         elif kind == "claim":
-            self.claim(who, saw=list(SEATS))  # a restored or replayed claim was seen when it was first made
+            self.claim(who, at_once=True)  # a restored or replayed claim was seen when it was first made
         else:
             self.play_card(who, what)
 
@@ -371,6 +353,8 @@ class Table:
         """Let the bot act once if it is a bot's turn. Returns a description."""
         if not self.is_bot_turn():
             return None
+        if self.claiming:
+            return self._claim_card()
         seat = self.seat_to_act()
         if self.phase == PLAYING:
             claimed = self._bot_claim(self.controller_of(seat))
@@ -404,7 +388,7 @@ class Table:
         self.phase = BIDDING
         self.actions = []
         self._claim = None
-        self.claim_offer = None  # a refused claim stays refused: that bot plays the board out (claim_refused kept)
+        self.claiming = None
         for who, kind, what in keep:
             self.replay(who, kind, what)
 
@@ -422,7 +406,7 @@ class Table:
     def hint_start(self, controller: str) -> dict | BotView:
         """The quick part of a hint: a bidding hint outright, or the view a card hint is worked out from.
         The view is a copy, so the slow part (`card_hint`) can run while the board moves on."""
-        if controller != self.controller_to_act():
+        if controller != self.controller_to_act() or self.claiming:
             raise ValueError("it isn't your turn")
         seat = self.seat_to_act()
         if self.phase == BIDDING:
@@ -477,6 +461,7 @@ class Table:
                        if self.phase == BIDDING and viewer == to_act else [])
         state = {
             "board": self.board,
+            "step": len(self.actions),  # the app sends this back with a call or card: see Room.handle
             "dealer": self.dealer,
             "vulnerability": self.vulnerability,
             "phase": self.phase,
@@ -489,15 +474,16 @@ class Table:
             ],
             "turn": to_act,
             "controller": controller,
-            "your_turn": viewer is not None and controller == viewer,
+            "your_turn": viewer is not None and controller == viewer and not self.claiming,
             "can_undo": self.can_undo(),
             "can_claim": viewer is not None and not all_hands and self.can_claim(viewer),
-            "claim_offer": self.claim_offer_for(viewer),
+            # a claim being played out: who claimed and how many tricks, for the notice on the table
+            "claiming": {"by": self.claiming["by"], "tricks": self.claiming["tricks"]} if self.claiming else None,
             "contract": self.contract.to_dict() if self.contract else None,
             "legal_calls": legal_calls,
             "call_meanings": {c: self._meaning_next(c) for c in legal_calls},
             "legal_cards": (self.play.legal_cards(to_act)
-                            if self.phase == PLAYING and viewer == controller else []),
+                            if self.phase == PLAYING and viewer == controller and not self.claiming else []),
             "trick": None,
             "last_trick": None,
             "tricks_won": {"NS": 0, "EW": 0},

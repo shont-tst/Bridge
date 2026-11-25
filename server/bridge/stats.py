@@ -20,6 +20,7 @@ from .core.par import par as par_from_tricks
 from .core.scoring import duplicate_score
 from .game.second import fill_split
 from .patterns import costly_cards, lead_info
+from .puzzles import spots
 
 CALIBRATION = Path(__file__).resolve().parent / "bots" / "calibration.json"
 LEVEL_BOARDS = 40  # the level is worked out from this many recent hands
@@ -78,6 +79,7 @@ def board_facts(rec: dict) -> dict:
         pass
     out["bid_outcomes"] = [{"convention": b.get("convention"), "own": b.get("index") not in asked_calls,
                             **(verdict(b.get("outcome"), seat) or {"verdict": None, "points": None})} for b in off]
+    out["puzzles"] = spots(rec, seat)  # Your mistakes (puzzles.py): never counted in My stats
     # the score par is compared with. At rubber, the board's points on the pad have no game bonus until the rubber
     # ends, so the board is scored like par is: game and part-score bonuses on the board, with the part score
     # already below the line counting towards game (with 60 on, 2♥ made is a game)

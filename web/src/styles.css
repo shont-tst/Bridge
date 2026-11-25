@@ -108,7 +108,8 @@ a.chip { text-decoration: none; display: inline-block; }
 .fan .pc.ok::after, .dummy .pc.ok::after { content: ""; position: absolute; inset: -3px; border-radius: 8px; box-shadow: 0 0 0 2px var(--gold); pointer-events: none; }
 .fan.dealt .pc { animation: fan-in .45s cubic-bezier(.2, .8, .2, 1); }
 @keyframes fan-in { from { transform: rotate(0deg) translateY(24px); opacity: .4; } }
-.myfan { height: 112px; margin-top: auto; }
+/* its own layer, so the cards (stacked by z-index) all stay under the score strip at the bottom */
+.myfan { height: 112px; margin-top: auto; z-index: 1; }
 .wide .myfan { height: 168px; width: min(100%, 820px); margin-left: auto; margin-right: auto; }
 
 /* ---------- lobby ---------- */
@@ -132,6 +133,7 @@ a.chip { text-decoration: none; display: inline-block; }
 .whats-new { margin-top: 18px; font-size: .9rem; }
 .whats-new summary { cursor: pointer; font-weight: 600; color: var(--gold); }
 .whats-new h3 { font: 400 1rem var(--display); margin: 12px 0 4px; }
+.whats-new .source { margin: 8px 0 0; }
 .whats-new ul { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; line-height: 1.4; }
 .sheet .whats-new summary { color: #8a6514; }
 /* plain links match the gold pull-downs: gold on the felt, darker gold on a light sheet */
@@ -303,6 +305,10 @@ a { color: var(--gold); text-underline-offset: 3px; }
 .bidnote .text { flex: 1; min-width: 0; }
 .hint-odds { display: block; opacity: .85; font-variant-numeric: tabular-nums; }
 .bidnote .text.yours { color: var(--gold); font-weight: 700; }
+/* a call or card still on its way on a poor connection (connection.ts Queued): a gentle pulse, so it reads as waiting */
+.bidnote .text.sending { animation: sending 1.6s ease-in-out infinite; }
+@keyframes sending { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .bidnote .text.sending { animation: none; } }
 
 .points { display: flex; flex-direction: column; gap: 3px; font-size: .78rem; font-variant-numeric: tabular-nums; }
 .pts { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 12px; margin: 0; }
@@ -345,6 +351,34 @@ a { color: var(--gold); text-underline-offset: 3px; }
 .wide .side { width: 100%; max-width: 680px; margin: 0 auto; padding: 10px 16px 0; gap: 8px; }
 .wide .points { font-size: .9rem; }
 .wide .bidnote { font-size: .95rem; }
+
+/* a laptop window (wide but under 800 high): smaller hands, bidding box and trick, so the table keeps room for the
+   names and the calls laid in front of each hand */
+.wide.low .myfan { height: 132px; }
+.wide.low .seatfan { width: 236px; height: 72px; }
+.wide.low .seatfan.top { left: calc(50% - 118px); top: -18px; }
+.wide.low .seatfan.left { left: -100px; top: calc(50% - 36px); }
+.wide.low .seatfan.right { right: -100px; top: calc(50% - 36px); }
+.wide.low .seatlbl { font-size: 1.1rem; }
+.wide.low .seatlbl.top { top: 56px; }
+.wide.low .seatlbl.left { left: 74px; }
+.wide.low .seatlbl.right { left: calc(100% - 74px); }
+.wide.low .bids.top { top: 90px; }
+.wide.low .bids.bottom { bottom: 46px; }
+.wide.low .bids.left { left: 104px; }
+.wide.low .bids.right { right: 104px; }
+.wide.low .btile { font-size: 1.05rem; padding: 6px 9px; min-width: 44px; }
+.wide.low .trick-area { --w: 60px; --h: 84px; width: 206px; height: 190px; top: 56%; }
+.wide.low .side { padding-top: 6px; gap: 5px; }
+.wide.low .bid { font-size: 1.1rem; padding: 7px 0; }
+.wide.low .bidnote { min-height: 36px; }
+/* under 720 high: smaller still, and the hand sits a little lower, its corners still in view */
+.wide.lower .myfan { height: 116px; margin-bottom: -16px; }
+.wide.lower .seatlbl.top { top: 50px; }
+.wide.lower .bids.top { top: 82px; }
+.wide.lower .bid { padding: 5px 0; }
+.wide.lower .side { padding-top: 4px; }
+.wide.lower .trick-area { --w: 54px; --h: 76px; width: 186px; height: 172px; }
 
 /* ---------- result ---------- */
 /* the top margin leaves a little room between the top line and the board's result */
@@ -484,14 +518,18 @@ a { color: var(--gold); text-underline-offset: 3px; }
 .conventions { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .conventions .learn { margin: 4px 0 0 28px; }
 .conventions select.indented { margin: 6px 0 0 28px; width: calc(100% - 28px); }
-.topics li > span { display: block; }
-.topics .learn { margin-left: 0; }
 .practice-bar {
   display: flex; justify-content: space-between; align-items: center; gap: 8px; flex: none;
   padding: 4px 12px; background: #1565c0; font-size: .9rem; font-weight: 600;
 }
 .practice-bar button { color: var(--ink); }
-.boardinfo .coach-note { display: block; font-size: .72rem; font-weight: 700; color: var(--gold); letter-spacing: .02em; }
+.boardinfo .coach-note { font-weight: 700; color: var(--gold); }
+/* the top line's parts joined by dots: each part stays whole, and a dot that would start a wrapped line falls in the
+   clipped space on the left */
+.topbar .boardinfo.joined { overflow: hidden; min-width: 0; }
+.boardinfo .parts { display: flex; flex-wrap: wrap; margin-left: -.8em; }
+.boardinfo .parts > span { position: relative; padding-left: .8em; white-space: nowrap; }
+.boardinfo .parts > span::before { content: "·"; position: absolute; left: 0; width: .8em; text-align: center; color: #fff; font-weight: 400; }
 .lesson h2 { margin: 10px 0 6px; }
 .lesson p { line-height: 1.45; }
 .lesson .example { background: #f3f1ea; border-radius: 10px; padding: 6px 10px; margin: 8px 0; }
@@ -874,7 +912,7 @@ button.text-link { background: none; border: 0; padding: 0; font: inherit; color
 .tut-step .tag.soon { background: #efe9da; color: #6b5a2e; }
 .tut-badge { width: 64px; height: 64px; border-radius: 50%; background: var(--felt); color: #fff; display: grid; place-items: center; margin: 4px auto 10px; }
 .tut-remember { background: #f3f1ea; border-radius: 10px; padding: 10px 12px; text-align: left; margin: 16px 0 !important; }
-.lobby button.learn { width: 100%; } /* Learn to play; not the menu's small Learn & practice */
+.lobby button.learn { width: 100%; } /* Learn & practice; not the menu's small Learn & practice pills */
 
 /* the table */
 .tut-bar { padding: calc(var(--top-gap) + 2px) 12px 6px; }
@@ -959,3 +997,38 @@ button.text-link { background: none; border: 0; padding: 0; font: inherit; color
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
 .leave-ask { margin: 0 0 8px; }
 .leave-ask p { margin: 4px 0; font-size: .9rem; }
+.nowrap { white-space: nowrap; }
+
+/* ---------- Your mistakes, and deals played again (PuzzleSheet.tsx, game/replay.py) ---------- */
+.lobby button.puzzles .count {
+  display: inline-block; min-width: 1.7em; margin-left: 8px; padding: 0 7px; border-radius: 999px;
+  background: var(--gold); color: var(--felt-dark); font-weight: 700; font-size: .9em; line-height: 1.5;
+}
+.topbar .corner .skip { order: -1; background: none; border: 0; padding: 4px 6px; color: #fff; font-weight: 600; white-space: nowrap; }
+.puzzle-sheet .tag { display: inline-block; font-size: .72rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase;
+  padding: 0 6px; border-radius: 4px; line-height: 1.5; vertical-align: 1px; background: #f7dcd9; color: #9b2a1e; margin-right: 4px; }
+.puzzle-sheet p { margin: 10px 0; }
+.puzzle-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.puzzle-actions .row { display: flex; gap: 10px; }
+.puzzle-actions .row button { flex: 1; padding-left: 8px; padding-right: 8px; }
+.puzzle-actions .link { align-self: center; margin-top: 2px; }
+/* two pairs of links: on one line where they fit, else a pair on each line */
+.puzzle-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; }
+.puzzle-links > span { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 18px; white-space: nowrap; }
+@media (max-width: 360px) { .puzzle-links, .puzzle-links > span { column-gap: 12px; } .puzzle-links .link { font-size: .85rem; } }
+.puzzle-links .link { margin-top: 0; }
+.puzzle-actions .link.quiet { color: var(--muted); font-weight: 400; }
+/* the review's Play on from here, under one of your costly cards, and Play this deal again at its foot */
+.review-list .replay-here { display: block; margin: 6px 0 4px; padding: 4px 12px; font-size: .88rem; font-weight: 400; }
+.review .replay-deal { margin-top: 12px; }
+
+/* ---------- Learn & practice (LearnHub.tsx): rows like Learn to play's steps ---------- */
+.hub-row { color: inherit; text-decoration: none; }
+.hub-row .chev { color: #b9b2a0; flex: none; }
+.hub-row:disabled .chev { visibility: hidden; }
+.hub-count { display: inline-block; min-width: 1.7em; padding: 0 7px; border-radius: 999px; text-align: center; background: var(--gold); color: var(--felt-dark); font-weight: 700; font-size: .85rem; line-height: 1.6; }
+.tut-step .tag.none { background: #efe9da; color: #6b5a2e; }
+.tut-steps.hub { margin: 4px 0 10px; }
+.hub-h { font-size: .75rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 20px 0 0; }
+.tut-page .error { margin: 8px 0; }
+.pz-list { margin: 6px 0; }

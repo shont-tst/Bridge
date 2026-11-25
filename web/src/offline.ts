@@ -1,5 +1,6 @@
 import { VERSION } from "./version";
 import { deviceId, deviceName } from "./connection";
+import type { TableBrief } from "./types";
 
 /** Playing with no internet, or none good enough: the server's own game runs on this phone (public/offline/worker.js,
  * server/bridge/local.py), and the table it plays is kept here until the server can take it back.
@@ -17,6 +18,7 @@ const BOARDS = "bridge-offline-boards"; // finished boards for your account: [{u
 const DROPS = "bridge-offline-drops"; // boards Undo took back after they went to your account
 const READY = "bridge-offline-ready"; // the version whose engine files are all on this phone
 const WHERE = "bridge-bots-here"; // "0": the server plays the bots while there's internet (the menu's switch)
+
 
 interface Kept {
   snap: string;
@@ -390,6 +392,30 @@ export function keptTable(): string | null {
 
 export function forgetTable() {
   write(TABLE, null);
+}
+
+/** The table kept on this phone, as a line of the home screen's Your tables (the server's Rooms.tables_of, brief),
+ * and its seat's token, to quit it with. */
+export function keptBrief(user?: string | null): (TableBrief & { token?: string }) | null {
+  const kept = read<Kept | null>(TABLE, null);
+  if (!kept) return null;
+  try {
+    const snap = JSON.parse(kept.snap);
+    const seats = Object.keys(snap.players ?? {});
+    const seat = seats.find((s) => user && snap.players[s].user === user) ?? seats[0];
+    const me = seat ? snap.players[seat] : null;
+    const mine = seat === "N" || seat === "S" ? "NS" : "EW";
+    const lines: { side: string; points: number }[] = snap.rubber?.lines ?? [];
+    const rubber = snap.settings?.scoring === "rubber";
+    const sum = (ours: boolean) => lines.filter((l) => (l.side === mine) === ours).reduce((a, l) => a + l.points, 0);
+    return {
+      room: kept.room, seat: seat ?? "S", board: snap.board_no ?? 0, people: [], here: [],
+      we: rubber ? sum(true) : null, they: rubber ? sum(false) : null,
+      last: me?.last || snap.saved || 0, lesson: snap.settings?.practice ?? null, local: true, token: me?.token,
+    };
+  } catch {
+    return { room: kept.room, seat: "S", board: 0, people: [], here: [], we: null, they: null, last: 0, lesson: null, local: true };
+  }
 }
 
 // --- back to the server -------------------------------------------------------------------------------------------

@@ -25,7 +25,7 @@ function parVerdict(diff: number, watching?: boolean): string {
   return `${Math.abs(diff)} ${diff > 0 ? "above" : "below"} par.`;
 }
 
-export default function ResultPanel({ result, me, nameOf, onNext, canNext, nextLabel, onScore, onUndo, help, title, watching, auction, play }: {
+export default function ResultPanel({ result, me, nameOf, onNext, canNext, nextLabel, onScore, onUndo, help, title, watching, auction, play, onReplay }: {
   result: BoardResult;
   me: Seat;
   nameOf: (s: Seat) => string;
@@ -39,6 +39,7 @@ export default function ResultPanel({ result, me, nameOf, onNext, canNext, nextL
   watching?: boolean; // the score is shown for North–South
   auction?: ReactNode; // at the table: the auction, where a bot's call can be tapped for why it bid that
   play?: ReactNode; // at the table: the play, where a bot's card can be tapped for how it picked it
+  onReplay?: (from: number) => void; // play the deal again, after this many calls and cards (0: from the start)
 }) {
   const mine = me === "N" || me === "S" ? result.score_ns : -result.score_ns;
   const c = result.contract;
@@ -99,6 +100,7 @@ export default function ResultPanel({ result, me, nameOf, onNext, canNext, nextL
         }
         auction={auction}
         play={play}
+        onReplay={watching ? undefined : onReplay}
         dd={dd?.tricks && (
           <>
             <p className="muted small dd-help">

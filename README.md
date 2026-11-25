@@ -24,19 +24,19 @@ On an iPad, from a demo account (the player and the bots' names are made up).
   <tr>
     <td width="33%"><img src="screenshots/stats.png" alt="My stats: level on the bots' scale, results against par and the second table, and the hand history"></td>
     <td width="33%"><img src="screenshots/learn.png" alt="Learn to play: seven short steps from tricks to scoring"></td>
-    <td width="33%"></td>
+    <td width="33%"><img src="screenshots/practice.png" alt="Learn &amp; practice: Learn to play, Your mistakes waiting as puzzles, the cheat sheet and a lesson for each convention, lead and signal"></td>
   </tr>
   <tr>
     <td align="center"><b>My stats</b> and hand history</td>
     <td align="center"><b>Learn to play</b></td>
-    <td></td>
+    <td align="center"><b>Learn &amp; practice</b></td>
   </tr>
 </table>
 
 ## What it does
 
 - **Tables:** start a table and invite friends with a link. Up to four people pick their seats; bots play the rest.
-  Anyone else can watch.
+  Anyone else can watch. The home screen lists every table you're still seated at, to go back to or quit.
 - **Bidding:** one-tap bid buttons, your points at a glance, and every call can be tapped for what it means.
 - **Card play:** claims (yours and the bots'), undo, rubber or duplicate scoring, Standard opening leads and
   optional defensive signals.
@@ -44,8 +44,9 @@ On an iPad, from a demo account (the player and the bots' names are made up).
   the hidden cards and solving each one with a double-dummy solver, never peeking at hidden hands. Tap a bot's call
   or card to see why.
 - **Learning:** Learn to play for newcomers (seven short steps, skipping what you know from games like Hearts or
-  Spades), a lesson with practice deals for each convention, for opening leads and for signals, and hints: the
-  system's call, or a card with how often it makes or beats the contract.
+  Spades) and a lesson with practice deals for each convention, for opening leads and for signals, all on one Learn &
+  practice page from the home screen; and hints: the system's call, or a card with how often it makes or beats the
+  contract.
 - **Review after every board:** a few lines sum the board up (par, your play, your bidding, the second table) above
   the four hands, and each opens in full:
   - **Cards that cost a trick**, found by solving the deal with every card seen, each marked **Mistake** (the worse
@@ -57,6 +58,13 @@ On an iPad, from a demo account (the player and the bots' names are made up).
     were, as at a team match. You see its contract, auction and play, and your result against it in IMPs, split into
     what came from the bidding and what came from the play.
   - The auction, the play trick by trick, and the tricks with all cards seen.
+  - **Play on from here** under each of your cards that cost a trick, and **Play this deal again**, with the real
+    cards and bots in the other seats.
+- **Your mistakes:** your own past Mistake cards and Cost calls come back as one-decision puzzles at the table. Pick
+  a card or call and see whether it was right, with the odds and what each card takes as the cards lay. A puzzle
+  comes back in 3 days until you've got it right twice. After a wrong answer you can try again, or remove a puzzle
+  you disagree with. Practice them all, or only one kind: bidding, declarer play in
+  a suit or in notrump, opening leads, or defense.
 - **My stats:** your level on the bots' 1 to 10 scale, your score against par and your IMPs against the second table,
   then bidding, declaring and defense, each with its share of those IMPs, its own figures (calls off the system,
   tricks lost, contracts made, opening leads that cost a trick) and a tip for the weakest of the three. Tick boxes
@@ -108,6 +116,7 @@ locally and files no feedback issues.
 | `BRIDGE_INVITE_CODE` | none | A family code anyone can use to make an account |
 | `BRIDGE_FEEDBACK_REPO` | none | The GitHub repository Feedback files issues in, as `owner/name` (best a private one) |
 | `BRIDGE_FEEDBACK_TOKEN` | none | Lets Feedback file GitHub issues in that repository (keep it secret) |
+| `BRIDGE_SOURCE_URL` | none | Where the open source code is, as a web address; What's new links to it |
 | `BRIDGE_CONNECTOR_REDIRECTS` | none | Extra AI apps allowed to connect as the AI coach |
 | `BRIDGE_RATE_LIMITS` | on | `0` turns off rate limits, for local testing |
 | `BRIDGE_BOT_DELAY` | 0.7 | Seconds between bot actions, so people can follow |
@@ -125,11 +134,11 @@ server/bridge/
   core/          cards, boards, auction, play, scoring, rubber, claims, par
   bidding/       the rule engine, conventions, lessons, part-score and vulnerability bidding
   bots/          what a bot may see, the sampler, card play, opening leads, signals, strength levels
-  game/          rooms, tables, review, odds and the second table
+  game/          rooms, tables, review, odds, the second table, and deals played again (replay.py)
   solver.py      the double-dummy solver (DDS) in a worker process
   accounts.py    passkeys, accounts, friends, invite links
   social.py      who is online, invites to play;  push.py  phone notifications
-  stats.py       My stats;  admin.py  the Admin page;  load.py  table load
+  stats.py       My stats;  puzzles.py  Your mistakes;  admin.py  the Admin page;  load.py  table load
   connector.py, coach.py, trends.py, patterns.py   the AI coach (MCP)
   local.py       the game as the app runs it on the phone;  offline.py  the engine download
   feedback.py    Feedback as GitHub issues;  backups.py  weekly backups

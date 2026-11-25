@@ -265,7 +265,7 @@ function BidOutcome({ b, me, pending }: { b: BidReview; me: Seat; pending?: bool
  * unlucky on the odds), the calls that left the system, the second table and the tricks with all cards seen. Tapping
  * a line opens its pull-down. Without a review (an old board, or one it couldn't be worked out for), just par, the
  * hands and the pull-downs there are. */
-export default function ReviewPanel({ result, me, nameOf, help, watching, par, hands, auction, play: playRecord, dd }: {
+export default function ReviewPanel({ result, me, nameOf, help, watching, par, hands, auction, play: playRecord, dd, onReplay }: {
   result: BoardResult;
   me: Seat;
   nameOf: (s: Seat) => string;
@@ -276,6 +276,7 @@ export default function ReviewPanel({ result, me, nameOf, help, watching, par, h
   auction?: React.ReactNode;
   play?: React.ReactNode; // the play, trick by trick
   dd?: React.ReactNode; // the tricks with all cards seen
+  onReplay?: (from: number) => void; // Play on from here (the calls and cards before it), Play this deal again (0)
 }) {
   const [everyone, setEveryone] = useState(false);
   const [alternatives, setAlternatives] = useState(false);
@@ -495,6 +496,11 @@ export default function ReviewPanel({ result, me, nameOf, help, watching, par, h
                       <span className="muted">Trick {c.trick}</span>
                     )}
                     <span className="muted">:</span> {costLine(c)}
+                    {onReplay && c.by === me && charged(c) > 0 && cardIndex(c) >= 0 && (
+                      <button className="small replay-here" onClick={() => onReplay((result.calls?.length ?? 0) + cardIndex(c))}>
+                        Play on from here
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -530,6 +536,11 @@ export default function ReviewPanel({ result, me, nameOf, help, watching, par, h
           second ? impsOf(second) : undefined)}
         {dd && pull("dd", "Tricks with all cards seen", dd)}
       </div>
+      {onReplay && result.calls?.length ? (
+        <button className="replay-deal" onClick={() => onReplay(0)}>
+          Play this deal again
+        </button>
+      ) : null}
       {open && <TrickPopup c={open} result={result} me={me} who={who} line={costLine(open)} onClose={() => setOpen(null)} />}
       {help && (help.hints || help.undos || help.coach) ? (
         <p className="muted small">

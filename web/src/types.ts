@@ -137,27 +137,17 @@ export interface BoardResult {
   claimed?: Seat | null; // the seat that claimed the last tricks
   claimed_tricks?: number | null; // how many tricks the claim took
   claim_cards?: Partial<Record<Seat, string[]>> | null; // the claiming side's cards when it claimed
-  claim_saw?: Seat[] | null; // the seats that saw those cards as the claim was made
-  claim_accepted?: Seat | null; // who accepted a bot's claim (the first to accept settles it)
+  claim_played?: boolean; // the claim's cards were played out on the table for everyone to watch
   dealer?: Seat;
+  vulnerability?: string;
   calls?: string[]; // the auction, from the dealer
   // the calls and cards made right after a hint or an AI coach question: index in the auction or the play
   asked?: { kind: "call" | "card"; index: number; seat: Seat; asked: ("hints" | "coach")[] }[] | null;
 }
 
-/** A bot's claim of every remaining trick, waiting on the people on the other side. */
-export interface ClaimOffer {
-  by: Seat; // the bot claiming (declarer, for declarer's side)
-  tricks: number; // tricks left
-  cards: string[]; // the claimer's cards, shown face up
-  dummy: boolean; // declarer claiming: dummy's cards count too
-  dummy_cards?: string[] | null; // declarer claiming: dummy's cards, shown with the claimer's
-  you_decide: boolean; // you're on the other side and haven't accepted yet
-  waiting: Seat[]; // who hasn't accepted yet
-}
-
 export interface TableState {
   board: number;
+  step?: number; // calls and cards made so far: sent back with a call or card (see Queued in connection.ts)
   dealer: Seat;
   vulnerability: "None" | "NS" | "EW" | "Both";
   phase: "bidding" | "playing" | "done";
@@ -169,7 +159,7 @@ export interface TableState {
   your_turn: boolean;
   can_undo?: boolean;
   can_claim?: boolean; // you're on lead and certain to take every remaining trick
-  claim_offer?: ClaimOffer | null;
+  claiming?: { by: Seat; tricks: number } | null; // a claim being played out on the table, a card at a time
   contract: Contract | null;
   legal_calls: string[];
   call_meanings: Record<string, Meaning>;
@@ -180,6 +170,7 @@ export interface TableState {
   result: BoardResult | null;
   dummy?: Seat;
   card_why?: Record<string, CardWhy>; // bots' cards played this board
+  played?: [Seat, string][]; // a deal played again: the cards so far, for Tricks so far
 }
 
 export interface Settings {
@@ -196,6 +187,65 @@ export interface Settings {
   tutorial?: number | null; // a Learn to play table: step 6 or 7
   signals: "off" | "standard" | "upside"; // defensive signals the bots give and read
   leads: boolean; // the bots lead, and read the opening lead, by Standard leads
+  replay?: ReplayInfo | null; // a deal played again, or Your mistakes
+}
+
+/** The answer to a Your mistakes puzzle, as the server judged it (game/replay.py). */
+export interface PuzzleAnswer {
+  kind: "card" | "call";
+  right: boolean;
+  right_count: number; // right answers so far, this one included
+  retired: boolean; // right twice: it won't come back
+  retry?: boolean; // Try again after a wrong answer: shown, never saved
+  removed?: boolean; // the player chose Don't show this again: it never comes back
+  // a card puzzle
+  card?: string; // the card tapped
+  better?: string; // the card shown as the answer: the one tapped when right, else the best on the odds
+  original?: string; // the card played at the table
+  seat?: Seat; // whose card it is (dummy's, when declarer plays it)
+  trick?: number;
+  pct?: Record<string, number>; // how often each of those cards takes `tricks` tricks
+  tricks?: number | null;
+  goal?: "make" | "beat" | null;
+  dd?: Record<string, number>; // the tricks each takes as the cards lay
+  // a bidding puzzle
+  call?: string;
+  meaning?: string | null;
+  system_call?: string;
+  system_meaning?: string | null;
+  original_meaning?: string | null;
+  cost?: number | null; // points the call made at the table costs (on average when `average`)
+  average?: boolean;
+}
+
+/** A deal played again (Settings.replay). With `puzzles`, Your mistakes: puzzle n of `of`. */
+export interface ReplayInfo {
+  board: number;
+  puzzles: boolean;
+  n?: number;
+  of?: number;
+  key?: string; // the saved board the puzzle comes from
+  kind?: "card" | "call";
+  trick?: number | null;
+  answer?: PuzzleAnswer | null;
+  playing_on?: boolean; // chose Play on from here (or Play this deal again) after answering
+}
+
+/** What the server needs to play a deal again (game/replay.py's spec). */
+export interface ReplaySpec {
+  board: number;
+  dealer: Seat;
+  vulnerability: string;
+  hands: Record<Seat, string>;
+  calls: string[];
+  play: [Seat, string][];
+  seat: Seat;
+  from: number; // calls and cards made for you before you take over
+  conventions?: string[];
+  difficulty?: number;
+  signals?: string | null;
+  leads?: boolean;
+  below?: { NS: number; EW: number } | null;
 }
 
 export interface RubberLine {
@@ -298,4 +348,19 @@ export interface Gone {
   left: boolean; // tapped Leave (else: away)
   since: number; // when they went, to tell one time from the next
   bot: boolean; // a bot plays their seat until they're back
+}
+
+/** A table you still have a seat at, on the home screen's Your tables (the server's brief() in game/room.py). */
+export interface TableBrief {
+  room: string;
+  seat: string;
+  board: number; // boards dealt so far
+  people: string[]; // the other people at the table
+  here: string[]; // those of them with it open now
+  we: number | null; // the rubber so far, your side and theirs (null: duplicate scoring)
+  they: number | null;
+  last: number; // when you last played there (seconds)
+  lesson: string | null;
+  parked?: boolean; // your bot table on another phone
+  local?: boolean; // the table kept on this phone
 }

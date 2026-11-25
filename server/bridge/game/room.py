@@ -32,6 +32,7 @@ from ..tutorial import bidding_deal
 from .analysis import dd_summary
 from .odds import MAX_CARDS as MAX_ODDS_CARDS, add_odds, odds_ahead
 from .second import add_split, second_table
+from .replay import RETIRE, at_spot, build as build_replay, card_facts, check as check_replay, judge_call, judge_card
 from .review import asked_marks, bidding_review, board_review, solve_undone, take_back_note, undone_review
 from .table import BIDDING, DONE, PLAYING, Table, card_hint
 
@@ -39,6 +40,8 @@ CODE_LETTERS = "BCDFGHJKLMNPQRSTVWXZ"  # no vowels: avoids accidental words
 CODE_LENGTH = 4  # 160,000 codes; tables made between 1.19 and 1.72 have 6 and still work
 SEAT_NAME = {"N": "North", "E": "East", "S": "South", "W": "West"}
 BOT_DELAY = float(os.environ.get("BRIDGE_BOT_DELAY", "0.7"))
+CLAIM_CARD = 0.25  # seconds between the cards of a claim played out on the table
+CLAIM_TRICK = 0.6  # and the extra look at each finished trick (the app holds it as long: CLAIM_TRICK in TableView)
 DEAL_PAUSE = 2.0  # the phones animate the deal before the first call
 TRICK_PAUSES = (1.0, 2.0, 3.0, 4.0)  # how long a finished trick stays on the table
 
@@ -73,6 +76,7 @@ class Player:
     last: float = 0  # when they last had the table open, so another phone can go straight back to it
     away: bool = False  # tapped Leave: opening the app elsewhere shows the lobby, not this table
     covered: bool = False  # gone, and the others chose to play on: a bot plays this seat until they're back
+    done: list = field(default_factory=list)  # the ids of their last few calls and cards, so a resent one counts once
 
 
 # Table settings a new table takes from the ones its maker last chose (their account's, or their phone's).
@@ -95,6 +99,11 @@ class Settings:
     tutorial: int | None = None  # a Learn to play table (step 6 or 7): its boards stay out of My stats
     signals: str = "off"  # defensive signals the bots give and read: "off", "standard" or "upside" (bots/signals.py)
     leads: bool = True  # the bots lead, and read the opening lead, by Standard leads (bots/leads.py)
+    # a deal played again (game/replay.py): the spec, and for Your mistakes the puzzles' order ("queue", "pos"),
+    # whose they are ("user"), the answer to the one on the table ("answer"), whether the player is trying it again
+    # after a wrong answer ("retry": judged but not saved) and whether the player chose to play on from it
+    # ("playing_on"). Its boards stay out of My stats.
+    replay: dict | None = None
     # A new table starts with the settings its maker last chose (REMEMBERED), or these defaults the first time.
 
     def to_dict(self) -> dict:
@@ -102,7 +111,20 @@ class Settings:
                 "solo": self.solo, "hints": self.hints, "ai_coach": self.ai_coach, "practice": self.practice,
                 "practice_title": lesson_title(self.practice) if self.practice else None,
                 "trick_pause": self.trick_pause, "undo": self.undo, "scoring": self.scoring, "tutorial": self.tutorial,
-                "signals": self.signals, "leads": self.leads}
+                "signals": self.signals, "leads": self.leads, "replay": self.replay_shown()}
+
+    def replay_shown(self) -> dict | None:
+        """What the app needs to know about a replay: never the deal itself, which the table shows as it should."""
+        r = self.replay
+        if not r:
+            return None
+        out = {"board": r["board"], "puzzles": "queue" in r}
+        if "queue" in r:
+            p = r.get("puzzle") or {}
+            out.update(n=r["pos"] + 1, of=len(r["queue"]), key=p.get("key"), kind=p.get("kind"),
+                       trick=p["index"] // 4 + 1 if p.get("kind") == "card" else None,
+                       answer=r.get("answer"), playing_on=bool(r.get("playing_on")))
+        return out
 
     @property
     def method(self) -> str | None:
@@ -122,6 +144,9 @@ def averages_ahead(engine, hands: dict[str, Hand], dealer: str, calls: list[str]
 
 
 class Room:
+    # Your mistakes: (user id, puzzle id) -> that puzzle's replay spec, or None. The server sets it (app.py, puzzles.py);
+    # the phone has no puzzles.
+    puzzle_loader: Callable[[str, str], dict | None] | None = None
     # Work out the card hint as soon as it's a person's turn, and the review's odds as the board goes. The app's
     # offline engine turns this off (bridge/local.py): in a browser the solver can't run beside the game, so work
     # nobody has asked for yet would hold up the player's next card.
@@ -164,6 +189,9 @@ class Room:
         self.rev = 0  # goes up with every change, so a saved copy can tell whether it is the latest
         self.on_change: Callable[["Room"], None] | None = None
         self.chose: list[tuple[str, dict]] = []  # (user id, settings): a signed-in player's choices, to remember
+        # (user id, puzzle id, right, or None when removed): Your mistakes answers to save
+        self.puzzle_marks: list[tuple[str, str, bool | None]] = []
+        self._puzzle_facts: tuple[str, asyncio.Future] | None = None  # what judging the card puzzle needs (replay.py)
         self._rebuild_engine()
 
     # --- configuration --------------------------------------------------------------
@@ -205,9 +233,6 @@ class Room:
         seat = next((s for s, q in self.players.items() if q is p), None)
         if seat and self._mid_board():
             self.table.bot_seats.discard(seat)
-            offer = self.table.claim_offer
-            if offer and offer["by"] == seat:  # the bot's claim goes with it: they play on themselves
-                self.table.claim_offer = None
 
     async def broadcast_when_away(self) -> None:
         """Someone just closed the app: once they've been gone long enough, tell the others."""
@@ -321,7 +346,7 @@ class Room:
         if seat is None and len(self.players) < 2 and not self.settings.solo:
             seat = next((s for s in ("S", "N") if self._free(s)), None)
         if seat is None and not self.players:
-            seat = "S"
+            seat = self.settings.replay["seat"] if self.settings.replay else "S"  # a replay: the seat played then
         if seat is not None:
             try:
                 self.sit(p.token, seat)
@@ -459,6 +484,10 @@ class Room:
                 p.since, p.pending, p.watching = self.board_no, None, False
             if p.watching:
                 p.seen = self.board_no
+        if self.settings.replay:  # the same deal again, from where the player chose (game/replay.py)
+            self.table = build_replay(self.settings.replay, self.engine, self.bot_seats(), self.bot, self.rng,
+                                      self.settings.method, self.settings.leads)
+            return
         hands = dealer = None
         if self.settings.tutorial == 6:
             hands, dealer = bidding_deal(self.engine, self.board_no, self.rng)
@@ -550,8 +579,8 @@ class Room:
         # the other signed-in people who played this board, for the order of the friends list
         humans = {p.user for seat, p in self.players.items() if p.user and seat not in t.bot_seats}
         with_ = {u: sorted(humans - {u}) for u in humans}
-        # Learn to play's hands don't go into My stats
-        self._to_save = [] if self.settings.tutorial else [
+        # Learn to play's hands, and deals played again, don't go into My stats
+        self._to_save = [] if self.settings.tutorial or self.settings.replay else [
             (p.user, {**rec, "seat": seat, "with": with_[p.user]}) for seat, p in self.players.items()
             if p.user and seat not in t.bot_seats and p.since <= t.board]
         self.finished.extend(self._to_save)
@@ -571,6 +600,14 @@ class Room:
         table = self.table.state_for(seat, all_hands=watching) if self.table else None
         if table and self._both_sides():
             table["can_undo"] = False
+        r = self.settings.replay
+        if table and r:
+            # a deal played again starts part way through: the cards before it, for Tricks so far
+            table["played"] = [list(x) for x in self.table.play.played_cards()] if self.table.play else []
+            if self._puzzle_open():
+                table["can_claim"] = False  # the puzzle asks for one card
+            if r.get("answer") and not r.get("playing_on"):  # answered: nothing more to play until they choose
+                table.update(your_turn=False, legal_cards=[], legal_calls=[], call_meanings={}, can_claim=False)
         return {
             "type": "state",
             "room": self.code,
@@ -590,7 +627,7 @@ class Room:
             # after Next board: who the next deal is waiting for
             "next_ready": seat in self.ready,
             "next_waiting": [self.players[s].name for s in self.holding_up()] if self.ready else [],
-            "can_skip": len(self.players) == 1 and seat is not None,
+            "can_skip": len(self.players) == 1 and seat is not None and not self.settings.replay,
             "tutorial_call": self._tutorial_call(seat),
             "table": table,
             "totals": self.totals(),
@@ -643,7 +680,7 @@ class Room:
     def carriable(self) -> bool:
         """One person playing with the bots: the app can carry this table on by itself when the server can't be
         reached (bridge/local.py). With other people at the table it can't: one phone mustn't hold their cards."""
-        return len(self.players) == 1 and not self.watchers
+        return len(self.players) == 1 and not self.watchers and not self.settings.replay  # replays stay here
 
     async def handle(self, seat: str | None, msg: dict[str, Any], token: str | None = None) -> None:
         """Apply one client message from `seat` (None: someone watching or picking a seat)."""
@@ -661,15 +698,45 @@ class Room:
                 await self._deal_if_ready()
             elif seat is None and kind != "ping":  # someone watching can't change the table's settings
                 raise ValueError("take a seat to play")
+            elif kind in ("call", "play") and not self._fresh(seat, msg):
+                return  # sent again after a dropped connection, and already made: nothing to do
+            elif kind in ("call", "play") and self._puzzle_open():
+                await self._answer(seat, kind, msg)  # Your mistakes: judged, not played
+                self._made(seat, msg)
+            elif kind == "puzzle_retry":  # after a wrong answer: the same spot again, for practice (not saved)
+                r = self._require_replay()
+                if not (r.get("answer") and not r["answer"].get("right") and "queue" in r) or r.get("playing_on"):
+                    raise ValueError("there's nothing to try again")
+                r["answer"], r["retry"] = None, True
+            elif kind == "puzzle_remove":  # after a wrong answer: "Don't show this again" (they disagree it was a mistake)
+                r = self._require_replay()
+                a = r.get("answer")
+                if not (a and not a.get("right") and "queue" in r) or r.get("playing_on"):
+                    raise ValueError("only after a wrong answer")
+                if not r.get("removed"):
+                    a["removed"] = r["removed"] = True
+                    if r.get("user"):
+                        self.puzzle_marks.append((r["user"], r["puzzle"]["id"], None))
+            elif kind == "play_on":  # after answering: carry on from the puzzle's spot
+                r = self._require_replay()
+                r["answer"], r["playing_on"] = None, True
+            elif kind == "replay":  # play this deal again, from the start or (`from`) after that many calls and cards
+                await asyncio.get_running_loop().run_in_executor(None, self._replay_from, msg.get("from"))
+            elif kind == "puzzle_next" or (kind == "next_board" and self.settings.replay):
+                if (self.settings.replay or {}).get("queue") is not None:
+                    await asyncio.get_running_loop().run_in_executor(None, self._next_puzzle)
+                else:  # a deal played again: Next plays it again from the start
+                    await asyncio.get_running_loop().run_in_executor(None, self._replay_from, 0)
             elif kind == "call":
                 self._require_table().make_call(seat, str(msg.get("call", "")))
+                self._made(seat, msg)
             elif kind == "play":
                 self._require_table().play_card(seat, str(msg.get("card", "")))
+                self._made(seat, msg)
             elif kind == "claim":
+                if self._puzzle_open():
+                    raise ValueError("Answer first: pick your card.")
                 await asyncio.get_running_loop().run_in_executor(None, self._require_table().claim, seat)
-            elif kind == "claim_answer":
-                await asyncio.get_running_loop().run_in_executor(
-                    None, self._require_table().answer_claim, seat, bool(msg.get("accept")))
             elif kind == "bot_for":  # someone left: play on with a bot in their seat
                 self.cover(seat, str(msg.get("seat", "")))
             elif kind == "undo":
@@ -754,6 +821,8 @@ class Room:
         decision waits for, or reuses, the first answer instead of starting another."""
         if not self.settings.hints:
             raise ValueError("hints are switched off for this table")
+        if self._puzzle_open():
+            raise ValueError("Hints come after you answer.")
         self._count(seat, "hints")
         async with self.lock:
             t = self._require_table()
@@ -809,7 +878,8 @@ class Room:
 
     def kick_hint(self) -> None:
         """Start the card hint as soon as it's a person's turn to play, so Hint answers at once when tapped.
-        It isn't counted as a hint until they ask for it."""
+        It isn't counted as a hint until they ask for it. At a card puzzle, start on what judging the answer needs."""
+        self._puzzle_ahead()
         self._drop_stale_hints()
         t = self.table
         if self.ahead and self.settings.hints and t and t.phase == PLAYING and t.controller_to_act() in self.players \
@@ -903,10 +973,133 @@ class Room:
                 "bot": seat in t.bot_seats, "meaning": t.engine.explain(t.auction, index).text,
                 "rule": why["rule"], "convention": why["convention"]}
 
+    def _fresh(self, seat: str, msg: dict[str, Any]) -> bool:
+        """On a poor connection the app keeps sending a call or card until the table answers, so the same one can
+        arrive twice: its id says whether it was made already. `at` is the table as the app saw it when the player
+        tapped (board and step): if the table has moved on since (Undo, a claim, a bot covering the seat), the
+        call or card was meant for a moment that's gone, and making it now could play it at the wrong trick."""
+        mid = msg.get("id")
+        p = self.players.get(seat)
+        if mid and p and mid in p.done:
+            return False
+        at, t = msg.get("at"), self.table
+        if at and t and at != f"{t.board}/{len(t.actions)}":
+            raise ValueError(f"The table moved on before your {'card' if msg.get('type') == 'play' else 'call'} "
+                             "got through.")
+        return True
+
+    def _made(self, seat: str, msg: dict[str, Any]) -> None:
+        p, mid = self.players.get(seat), msg.get("id")
+        if p and mid:
+            p.done = [*p.done[-19:], str(mid)[:40]]
+
     def _require_table(self) -> Table:
         if not self.table:
             raise ValueError("no board in progress")
         return self.table
+
+    # --- deals played again, and Your mistakes (game/replay.py) ----------------------------------------------------
+    def start_replay(self, spec: dict, queue: list[str] | None = None, pos: int = 0, user: str | None = None) -> None:
+        """Play a deal again with bots in the other seats, from the spec's starting point, at the table's settings
+        then (its conventions, the bots' level, signals and leads; the part scores bid as they were). `queue` makes it
+        Your mistakes: the puzzle ids in order, this one at `pos`, all `user`'s. Raises ValueError for a bad spec."""
+        spec = check_replay(spec)
+        conv = spec.get("conventions")
+        level = spec.get("difficulty")
+        self.update_settings(difficulty=level if isinstance(level, int) else None,
+                             conventions=[c for c in conv if c in BY_ID] if isinstance(conv, list) else None,
+                             signals=spec.get("signals") if spec.get("signals") in METHODS else "off",
+                             leads=spec["leads"] if isinstance(spec.get("leads"), bool) else None,
+                             solo=True, practice=None, scoring="duplicate")
+        self.settings.tutorial = None
+        replay = {**spec, "answer": None, "playing_on": False}
+        if queue is not None:
+            replay.update(queue=list(queue), pos=pos, user=user)
+        build_replay(replay, self.engine, self.bot_seats(), self.bot, random.Random(0), None, True)  # it can be played
+        self.settings.replay = replay
+        self._puzzle_facts = None
+        if self.players:
+            self.new_board()
+
+    def _require_replay(self) -> dict:
+        if not self.settings.replay:
+            raise ValueError("this table isn't playing a deal again")
+        return self.settings.replay
+
+    def _replay_from(self, start) -> None:
+        """Play the deal again from the start, or after `start` calls and cards: those of the board just finished
+        when it is over (Play on from here under its review), or else the ones the replay began with."""
+        r = self._require_replay()
+        t = self.table
+        if t and t.phase == DONE and t.result:
+            r["calls"], r["play"] = list(t.result.calls), [list(x) for x in t.result.play]
+        r["from"] = max(0, min(int(start or 0), len(r["calls"]) + len(r["play"])))
+        r["answer"] = None
+        r["playing_on"] = True  # a puzzle played again is no longer a puzzle
+        self.new_board()
+
+    def _next_puzzle(self) -> None:
+        """Your mistakes: on to the next puzzle in the queue (one whose board can't be read is passed over)."""
+        r = self._require_replay()
+        queue, user = r.get("queue"), r.get("user")
+        if queue is None or not self.puzzle_loader:
+            raise ValueError("no more puzzles here")
+        pos = r["pos"] + 1
+        while pos < len(queue):
+            spec = self.puzzle_loader(user, queue[pos])
+            if spec:
+                self.start_replay(spec, queue, pos, user)
+                return
+            pos += 1
+        raise ValueError("That was the last one.")
+
+    def _puzzle_open(self) -> bool:
+        """At a puzzle's spot, before the answer."""
+        r = self.settings.replay
+        return bool(r and r.get("puzzle") and "queue" in r and not r.get("answer") and not r.get("playing_on")
+                    and self.table and at_spot(self.table, r))
+
+    def _puzzle_ahead(self) -> None:
+        """At a card puzzle, work out what judging any card there needs while the player thinks (replay.card_facts):
+        each card's odds, and the tricks it takes as the cards lay."""
+        r = self.settings.replay
+        if not self._puzzle_open() or r["puzzle"]["kind"] != "card":
+            return
+        pid = r["puzzle"]["id"]
+        if self._puzzle_facts and self._puzzle_facts[0] == pid:
+            return
+        future = asyncio.get_running_loop().run_in_executor(None, at, HINT, card_facts, self.engine, dict(r),
+                                                            random.Random(self.rng.random()))
+        future.add_done_callback(lambda f: f.cancelled() or f.exception())
+        self._puzzle_facts = (pid, future)
+
+    async def _answer(self, seat: str, kind: str, msg: dict[str, Any]) -> None:
+        """Judge the player's call or card at a puzzle's spot. Nothing is played: the answer goes on the table's state
+        for the app to show, and to the player's puzzles to save (Rooms.save_puzzle)."""
+        t, r = self.table, self.settings.replay
+        if seat != t.controller_to_act():
+            raise ValueError("it isn't your turn")
+        p = r["puzzle"]
+        if kind == "play":
+            card = str(msg.get("card", ""))
+            if card not in t.play.legal_cards():
+                raise ValueError("that card can't be played now")
+            self._puzzle_ahead()
+            if not self._puzzle_facts:
+                raise ValueError("this puzzle needs a card")
+            facts = await asyncio.shield(self._puzzle_facts[1])
+            answer = judge_card(r, facts, card)
+        else:
+            answer = judge_call(self.engine, r, str(msg.get("call", "")))
+        if r.get("retry"):  # Try again after a wrong answer: shown, but the first answer is the one that counts
+            answer.update(right_count=p.get("right", 0), retired=False, retry=True, removed=bool(r.get("removed")))
+            r["answer"] = answer
+            return
+        right = p.get("right", 0) + (1 if answer["right"] else 0)
+        answer.update(right_count=right, retired=right >= RETIRE)
+        r["answer"] = answer
+        if r.get("user"):
+            self.puzzle_marks.append((r["user"], p["id"], answer["right"]))
 
     # --- bots ----------------------------------------------------------------------------
     def kick_bots(self) -> None:
@@ -916,7 +1109,7 @@ class Room:
     async def _run_bots(self) -> None:
         loop = asyncio.get_running_loop()
         while self.table and self.table.is_bot_turn():
-            await asyncio.sleep(BOT_DELAY + self._pause())
+            await asyncio.sleep(self._wait())
             async with self.lock:
                 if not (self.table and self.table.is_bot_turn()):
                     break
@@ -1039,7 +1232,7 @@ class Room:
     def _second_seats(self, t: Table) -> list[str]:
         """The people's seats that get a second table (game/second.py): not in Learn to play, whose hands aren't
         saved, and only where the work can be done after the board without holding up the game (`ahead`)."""
-        if not self.ahead or self.settings.tutorial:
+        if not self.ahead or self.settings.tutorial or self.settings.replay:
             return []
         return sorted(set(SEATS) - t.bot_seats)
 
@@ -1067,6 +1260,13 @@ class Room:
         self._second_save = []
         await self.broadcast()
 
+    def _wait(self) -> float:
+        """How long before a bot acts. A claim's cards go quickly, with a short look at each finished trick."""
+        t = self.table
+        if not BOT_DELAY or not t or not t.claiming:
+            return BOT_DELAY + self._pause()
+        return CLAIM_CARD + (CLAIM_TRICK if not t.play.current.cards and t.play.completed_tricks() else 0)
+
     def _pause(self) -> float:
         """Extra wait before a bot acts: while the phones animate the deal, or while a
         finished trick is still on show. None when bots are set to act at once (tests)."""
@@ -1081,6 +1281,15 @@ class Room:
 
 
     # --- saving, so a table carries on after the server restarts (every deploy) ---------------------
+    def snapshot_brief(self) -> dict:
+        """The few parts of snapshot() that brief() reads, and who has the table open now (open)."""
+        return {"code": self.code, "board_no": self.board_no, "saved": time.time(),
+                "settings": {"scoring": self.settings.scoring, "practice": self.settings.practice,
+                             "replay": bool(self.settings.replay), "tutorial": self.settings.tutorial},
+                "players": {s: {"name": p.name, "user": p.user, "last": p.last, "open": bool(p.connections)}
+                            for s, p in self.players.items()},
+                "rubber": {"lines": [l.to_dict() for l in self.rubber.lines]}}
+
     def snapshot(self) -> dict:
         t = self.table
         table = None
@@ -1089,7 +1298,7 @@ class Room:
                      "score": t.score.to_dict() if t.score else None,
                      "hands": {s: t.hands[s].to_pbn() for s in SEATS}, "bots": sorted(t.bot_seats),
                      "actions": [list(a) for a in t.actions], "card_why": t.card_why,
-                     "claim_offer": t.claim_offer, "claim_refused": sorted(t.claim_refused),
+                     "claiming": bool(t.claiming),
                      "fixed": t.fixed,
                      "dd": t.result.dd if t.result else None,
                      "review": t.result.review if t.result else None,
@@ -1100,7 +1309,7 @@ class Room:
             "settings": {**asdict(self.settings), "conventions": sorted(self.settings.conventions)},
             "players": {s: {"name": p.name, "token": p.token, "user": p.user, "since": p.since, "device": p.device,
                             "device_name": p.device_name, "last": p.last, "away": p.away,
-                            "covered": p.covered}
+                            "covered": p.covered, "done": p.done}
                         for s, p in self.players.items()},
             "rng": [state[0], list(state[1]), state[2]],
             "board_no": self.board_no, "help": self.help, "asked": self.asked, "undone": self.undone,
@@ -1129,7 +1338,7 @@ class Room:
         room.players = {s: Player(p["name"], p["token"], user=p.get("user"), since=p.get("since", 0),
                                   device=p.get("device"), device_name=p.get("device_name", ""),
                                   last=p.get("last", 0), away=p.get("away", False),
-                                  covered=p.get("covered", False))
+                                  covered=p.get("covered", False), done=p.get("done") or [])
                         for s, p in snap["players"].items()}
         v, internal, gauss = snap["rng"]
         room.rng.setstate((v, tuple(internal), gauss))
@@ -1150,14 +1359,14 @@ class Room:
             for who, kind, what in t["actions"]:
                 table.replay(who, kind, what)
             table.card_why = t.get("card_why") or {}
-            table.claim_offer = t.get("claim_offer")
-            table.claim_refused = set(t.get("claim_refused") or [])
             table.fixed = t.get("fixed", 0)
             if table.result:
                 table.result.dd, table.result.review = t["dd"], t["review"]
                 table.result.asked = asked_marks(table.actions, room.asked)
                 table.result.finished_at = t["finished_at"] or table.result.finished_at
             room.table = table
+            if t.get("claiming"):  # saved while a claim was being played out: it ended at once as it was replayed
+                room.record_result()
         return room
 
 
@@ -1167,6 +1376,27 @@ def _mid_game(snap: dict, seat: str) -> bool:
         return True
     t = snap.get("table")
     return bool(t and not t.get("finished_at") and any(a[0] == seat for a in t["actions"]))
+
+
+def brief(snap: dict, seat: str, now: float) -> dict | None:
+    """One line of the home screen's Your tables, from a saved table (or Room.snapshot_brief): who else plays there,
+    who of them has it open now, the board, the rubber so far from this seat's side, and when this seat last played."""
+    if snap["settings"].get("replay") or snap["settings"].get("tutorial"):
+        return None  # a deal played again, or Learn to play: they have their own ways back
+    me = snap["players"][seat]
+    others = [p for s, p in snap["players"].items() if s != seat]
+    mine = "NS" if seat in "NS" else "EW"
+    lines = (snap.get("rubber") or {}).get("lines") or []
+    rubber = snap["settings"].get("scoring") == "rubber"
+    return {
+        "room": snap["code"], "seat": seat, "board": snap.get("board_no", 0),
+        "people": [p["name"] for p in others],
+        "here": [p["name"] for p in others if p.get("open")],
+        "we": sum(l["points"] for l in lines if l["side"] == mine) if rubber else None,
+        "they": sum(l["points"] for l in lines if l["side"] != mine) if rubber else None,
+        "last": me.get("last", 0) or snap.get("saved", 0),
+        "lesson": snap["settings"].get("practice"),
+    }
 
 
 def _server_code(code: str) -> bool:
@@ -1187,7 +1417,8 @@ class Rooms:
 
     def __init__(self, store=None, save_board: Callable[[str, dict], None] | None = None,
                  drop_board: Callable[[str, dict], None] | None = None,
-                 save_settings: Callable[[str, dict], None] | None = None):
+                 save_settings: Callable[[str, dict], None] | None = None,
+                 save_puzzle: Callable[[str, str, bool | None], None] | None = None):
         self.rooms: dict[str, Room] = {}
         self.store = store
         self.parked: dict[str, dict] = {}  # user id: a bot table played on their phone (see park)
@@ -1195,8 +1426,10 @@ class Rooms:
         self.save_board = save_board  # (user id, record): a finished board, for that player's history
         self.drop_board = drop_board  # the same, for a board taken back by undo after it was saved
         self.save_settings = save_settings  # (user id, settings): what a player chose, for their next table
+        self.save_puzzle = save_puzzle  # (user id, puzzle id, right or None if removed): Your mistakes (puzzles.py)
         self._dirty: set[str] = set()
         self._saver: asyncio.Task | None = None
+        self._boot: list[dict] | None = None  # the tables in storage at start, for tables_of
 
     def _adopt(self, room: Room) -> Room:
         room.on_change = self._changed
@@ -1410,12 +1643,14 @@ class Rooms:
         """The table this player was last seated at: {"room", "jump"}, or None. jump when they had it open in the last
         half hour and didn't tap Leave, so the app opened on another phone can go straight to their seat. The lobby
         offers it for 2 hours after they last played, or 12 if they left in the middle of a rubber."""
+        # (not a deal played again: it's a side trip, not their table)
         found = [(p.last, code, p.away, r._mid_game(seat)) for code, r in self.rooms.items()
-                 for seat, p in r.players.items() if p.user == user_id]
+                 for seat, p in r.players.items() if p.user == user_id and not r.settings.replay]
         if not found and self.store:  # just after a deploy, tables wait in storage until someone comes back
             snaps = await asyncio.to_thread(self._all_saved)
             found = [(p.get("last", 0), snap["code"], p.get("away", False), _mid_game(snap, seat))
-                     for snap in snaps for seat, p in snap["players"].items() if p.get("user") == user_id]
+                     for snap in snaps for seat, p in snap["players"].items()
+                     if p.get("user") == user_id and not snap["settings"].get("replay")]
         was = self.parked.get(user_id)
         if was and not was.get("taken") and (not found or was["at"] > max(found)[0]):
             claimed = self._claim(user_id)  # their bot table on their phone, newer than any here: it moves here
@@ -1429,6 +1664,62 @@ class Rooms:
         if age > (self.OFFER_MID_GAME if mid_game else self.OFFER):
             return None
         return {"room": code, "jump": not away and age < self.JUMP}
+
+    async def tables_of(self, user_id: str) -> list[dict]:
+        """Every table this player still has a seat at, newest first, for the home screen's Your tables (see brief):
+        tables here, ones still in storage from before the last restart, and their bot table on their phone as of its
+        last copy (parked: True; claim brings it here). A table drops off 2 days after they last played at it."""
+        boot = await asyncio.to_thread(self._boot_saved)
+        now = time.time()
+        found: dict[str, dict] = {}
+        for code, r in self.rooms.items():
+            for seat, p in r.players.items():
+                if p.user == user_id:
+                    found[code] = brief(r.snapshot_brief(), seat, now)
+        for snap in boot:  # not touched since the restart, so not in memory yet
+            if snap["code"] in found or snap["code"] in self.rooms:
+                continue
+            for seat, p in snap["players"].items():
+                if p.get("user") == user_id and not self.was_closed(snap["code"], p.get("token")):
+                    found[snap["code"]] = brief(snap, seat, now)
+        was = self.parked.get(user_id)
+        if (was and not was.get("taken") and now - was["at"] <= self.OFFER_MID_GAME
+                and not self.was_closed(str(was["snap"].get("code", "")), was["token"])):
+            seat = next((s for s, p in was["snap"].get("players", {}).items() if p.get("token") == was["token"]), None)
+            if seat:
+                b = brief(was["snap"], seat, now)
+                if b:
+                    b["last"] = max(b["last"], was["at"])
+                    found.setdefault(f"parked:{b['room']}", {**b, "parked": True})
+        return sorted((b for b in found.values() if b and now - b["last"] <= self.KEEP), key=lambda b: -b["last"])
+
+    def _boot_saved(self) -> list[dict]:
+        """The tables in storage when the server started (read once): later ones are in memory, or were closed."""
+        if self._boot is None:
+            self._boot = self._all_saved() if self.store else []
+        return self._boot
+
+    def claim_parked(self, user_id: str) -> str | None:
+        """Your tables' Play on the bot table on your other phone: it comes here, and that phone follows it."""
+        claimed = self._claim(user_id)
+        return claimed[1] if claimed else None
+
+    async def quit_mine(self, user_id: str, code: str) -> bool:
+        """Your tables' Quit table: as Leave, then Quit table, at that table (quit). Returns False if you aren't
+        seated there. A parked table (your bot table on another phone) ends there too, by its seat."""
+        was = self.parked.get(user_id)
+        if code.startswith("parked:") and was and not was.get("taken"):
+            self.parked.pop(user_id, None)
+            self._mark_closed([f"seat:{was['token']}"])
+            return True
+        room = await self.aget(code)
+        if room is None:
+            return False
+        token = next((p.token for p in room.players.values() if p.user == user_id), None)
+        if not token:
+            return False
+        await self.quit(code, token)
+        return True
 
     def copy_for(self, user_id: str, code: str) -> dict | None:
         """The whole table, for the app to carry on with if the internet drops: only a table where this player is
@@ -1461,7 +1752,7 @@ class Rooms:
     # saving: at most a couple of times a second per table, off the event loop
     def _changed(self, room: Room) -> None:
         if not self.store and not (self.save_board and (room.finished or room.retracted)) and not (
-                self.save_settings and room.chose):
+                self.save_settings and room.chose) and not (self.save_puzzle and room.puzzle_marks):
             return
         self._dirty.add(room.code)
         try:
@@ -1491,6 +1782,13 @@ class Rooms:
                             await asyncio.to_thread(self.save_settings, user, chosen)
                         except Exception as exc:
                             log.warning("could not remember %s's table settings: %s", user, exc)
+                if room and self.save_puzzle:
+                    while room.puzzle_marks:
+                        user, pid, right = room.puzzle_marks.pop(0)
+                        try:
+                            await asyncio.to_thread(self.save_puzzle, user, pid, right)
+                        except Exception as exc:
+                            log.warning("could not save %s's answer to a puzzle: %s", user, exc)
                 if room and self.save_board:
                     while room.finished:
                         user, rec = room.finished.pop(0)

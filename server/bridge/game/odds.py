@@ -83,7 +83,8 @@ def card_odds(engine: BiddingEngine | None, hands: dict[str, Hand], dealer: str,
     return {"goal": "make" if same_side(seat, contract.declarer) else "beat", "samples": n,
             "tricks": p.tricks_won(side(seat)) + need if reach is not None else None,
             "played": pct[played], "best": best, "best_pct": pct[best], "better": better,
-            "hindsight": hindsight, "hindsight_pct": pct[hindsight] if hindsight else None}
+            "hindsight": hindsight, "hindsight_pct": pct[hindsight] if hindsight else None,
+            "all": pct}  # every legal card's %, so Your mistakes can judge any card played there (puzzles.py)
 
 
 def odds_ahead(engine: BiddingEngine | None, hands: dict[str, Hand], dealer: str, vulnerability: str,

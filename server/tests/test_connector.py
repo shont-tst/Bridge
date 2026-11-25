@@ -152,10 +152,18 @@ def test_claude_reviews_the_board_you_just_played(ai):
     every = tool("bidding_history", all_calls=True)
     assert every["boards"] and every["boards"][0]["calls"][0]["your_call"]
 
+    # every field the tools returned is plain from its name or explained in the tool's description
+    from test_connector_fields import undescribed
+    answers = {"last_board_review": data, "board_review": one["structuredContent"], "board_reviews": many,
+               "recent_boards": page, "my_stats": stats["structuredContent"], "coaching_overview": ov,
+               "mistake_patterns": tool("mistake_patterns", days=30), "bidding_history": every}
+    assert {name: undescribed(name, x) for name, x in answers.items() if undescribed(name, x)} == {}
+
     added = tool("coaching_notes", action="add", text="Count trumps  before drawing the last one")["notes"]
     assert [n["note"] for n in added] == ["Count trumps before drawing the last one"]
     assert tool("coaching_overview")["working_on"][0]["id"] == added[0]["id"]
     assert tool("coaching_notes", action="remove", id=added[0]["id"])["notes"] == []
+    assert not undescribed("coaching_notes", {"notes": added})
 
 
 def test_refresh_disconnect_and_sign_out_others(ai):
@@ -246,6 +254,8 @@ def test_coaching_during_play_only_when_the_table_allows_it(ai):
         call("current_board")  # the same decision counts once
         hint = call("app_hint")["structuredContent"]
         assert "suggested_call" in hint
+        from test_connector_fields import undescribed
+        assert not undescribed("current_board", board) and not undescribed("app_hint", hint)
         assert room.help["S"] == {"coach": 1, "hints": 1}
         ws.send_json({"type": "settings", "ai_coach": True})  # a fresh state for play_out to start from
         play_out(room, ws)

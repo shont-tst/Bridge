@@ -1,12 +1,10 @@
 import { useEffect, useState } from "react";
 import type { Account } from "../account";
 import { SEAT_NAME, contractLabel, signed } from "../cards";
-import type { AuctionEntry, BoardResult, Contract, Seat } from "../types";
-import AuctionView from "./AuctionView";
-import PlayView from "./PlayView";
+import type { Contract, ReplaySpec, Seat } from "../types";
 import CheatSheetLink from "./CheatSheet";
 import { BiddingStatsInfo, DeclaringStatsInfo, DefenseStatsInfo, HelpUsedInfo, LevelInfo, ParInfo, SecondTableInfo } from "./Explain";
-import ResultPanel from "./ResultPanel";
+import { SavedBoardPanel, type SavedRecord } from "./SavedBoard";
 import SuitText from "./SuitText";
 
 interface Summary {
@@ -185,13 +183,18 @@ function Level({ s }: { s: Stats }) {
   );
 }
 
-export default function MyStats({ account, onClose, back = "Lobby" }: { account: Account; onClose: () => void; back?: string }) {
+export default function MyStats({ account, onClose, back = "Lobby", onReplay }: {
+  account: Account;
+  onClose: () => void;
+  back?: string;
+  onReplay?: (spec: ReplaySpec) => void; // Play on from here, or Play this deal again, under a board's review
+}) {
   const [days, setDays] = useState(30);
   const [exclude, setExclude] = useState<Help[]>(loadExclude);
   const [stats, setStats] = useState<Stats | null>(null);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [filter, setFilter] = useState<"all" | "declarer" | "defender">("all");
-  const [open, setOpen] = useState<{ row: Row; rec: BoardResult & { players?: Record<string, string>; help?: any; auction?: AuctionEntry[] } } | null>(null);
+  const [open, setOpen] = useState<{ row: Row; rec: SavedRecord } | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const call = account.call; // the same function while the token stays the same
@@ -220,8 +223,6 @@ export default function MyStats({ account, onClose, back = "Lobby" }: { account:
   const list = (rows ?? []).filter((r) => filter === "all" || r.role === filter); // until the new page arrives
 
   if (open) {
-    const names = open.rec.players ?? {};
-    const nameOf = (s: Seat) => (s === open.row.seat ? "You" : names[s] ?? `Bot ${SEAT_NAME[s]}`);
     // walk through the list without going back to it: newer is up the list, older down it
     const at = list.findIndex((r) => r.key === open.row.key);
     const newer = at > 0 ? list[at - 1] : undefined;
@@ -244,16 +245,11 @@ export default function MyStats({ account, onClose, back = "Lobby" }: { account:
           </button>
           {steps}
         </div>
-        <ResultPanel
-          result={open.rec}
-          me={open.row.seat}
-          nameOf={nameOf}
-          help={open.rec.help?.[open.row.seat]}
-          auction={open.rec.auction?.length ? <AuctionView auction={open.rec.auction} dealer={open.rec.dealer ?? "N"} turn={null} room="" board={0} /> : undefined}
-          play={open.rec.play?.length ? (
-            <PlayView play={open.rec.play} whys={{}} dummy={open.rec.contract ? partnerOf[open.rec.contract.declarer] : undefined} contract={open.rec.contract} room="" board={0} />
-          ) : undefined}
+        <SavedBoardPanel
+          rec={open.rec}
+          seat={open.row.seat}
           title={`Board ${open.row.board} · ${new Date(open.row.at * 1000).toLocaleDateString(undefined, { month: "long", day: "numeric" })}`}
+          onReplay={onReplay}
         />
         <div className="stats-top board-nav bottom">{steps}</div>
       </div>

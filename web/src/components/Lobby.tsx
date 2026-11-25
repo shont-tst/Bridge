@@ -1,11 +1,13 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { REMEMBERED, usePrefs } from "../prefs";
-import type { Settings } from "../types";
+import type { Settings, TableBrief } from "../types";
 import { cancelled, passkeyName, type Account, type Friend, type FriendsView } from "../account";
 import type { Session } from "../connection";
-import { botsHere, keptTable, keptTableClosed, offlineReady, serverAnswers, warmEngine } from "../offline";
+import { botsHere, forgetTable, keptBrief, keptTableClosed, offlineReady, serverAnswers, warmEngine } from "../offline";
 import Friends from "./Friends";
+import LearnHub from "./LearnHub";
+import YourTables from "./YourTables";
 import PlayingCard from "./PlayingCard";
 import Feedback from "./Feedback";
 import Privacy from "./Privacy";
@@ -18,15 +20,17 @@ const WifiJoin = lazy(() => import("./WifiPair").then((m) => ({ default: m.WifiJ
 
 type Mode = "start" | "signup" | "device";
 
-export default function Lobby({ onJoin, notice, myTable, account, friends, onAccount, onLearn }: {
+export default function Lobby({ onJoin, notice, account, friends, onAccount, onLearn, onPuzzles, hub, onHub }: {
   onJoin: (s: Session, invite?: boolean) => void; // invite: open Invite to game at the new table
   notice?: string | null;
-  myTable?: string | null; // a table you're still seated at
 
   account: Account;
   friends: FriendsView | null;
   onAccount: () => void;
   onLearn: () => void; // Learn to play
+  onPuzzles?: (kind?: string) => void; // Your mistakes, every kind or only one (PuzzleIntro's KINDS)
+  hub: boolean; // Learn & practice is open
+  onHub: (open: boolean) => void;
 }) {
   const params = new URLSearchParams(location.search);
   const urlRoom = params.get("room")?.toUpperCase() ?? "";
@@ -43,6 +47,22 @@ export default function Lobby({ onJoin, notice, myTable, account, friends, onAcc
   const [deviceCode, setDeviceCode] = useState("");
   const [guest, setGuest] = useState(false);
   const user = account.user;
+  // Your mistakes: how many of your past mistakes are waiting as puzzles (signed in only)
+  const [puzzles, setPuzzles] = useState(0);
+  const [puzzleKinds, setPuzzleKinds] = useState<Record<string, number>>({}); // the same by kind of mistake
+  const call = account.call;
+  useEffect(() => {
+    if (!user) return setPuzzles(0);
+    let off = false;
+    call<{ waiting: number; kinds?: Record<string, number> }>("/api/me/puzzles").then((p) => {
+      if (off) return;
+      setPuzzles(p.waiting);
+      setPuzzleKinds(p.kinds ?? {});
+    }, () => {});
+    return () => {
+      off = true;
+    };
+  }, [call, user?.id]);
   const [prefs, setPrefs] = usePrefs();
   const [defaults, setDefaults] = useState<Settings | null>(null); // the ☰ menu, open: what new tables start with
   const accounts = account.config?.accounts;
@@ -78,7 +98,8 @@ export default function Lobby({ onJoin, notice, myTable, account, friends, onAcc
   }, [user, pendingInvite]);
 
   const remember = () => localStorage.setItem("bridge-name", name.trim());
-  const who = () => (user ? user.name : name.trim());
+  // practice from Learn & practice, which has no name field: "You", as in Learn to play
+  const who = () => (user ? user.name : name.trim() || (hub ? "You" : ""));
 
   const headers = { "Content-Type": "application/json", ...(account.token ? { Authorization: `Bearer ${account.token}` } : {}) };
   const newRoom = async (practice?: string): Promise<string> => {
@@ -113,7 +134,59 @@ export default function Lobby({ onJoin, notice, myTable, account, friends, onAcc
       off = true;
     };
   }, []);
-  const localTable = closed ? null : keptTable();
+  // Your tables: the one kept on this phone, and (signed in) every table on the server you still have a seat at
+  const [kept, setKept] = useState(() => keptBrief(user?.id));
+  const local = closed ? null : kept;
+  const [onServer, setOnServer] = useState<TableBrief[]>([]);
+  const lookUp = () => {
+    if (!account.token) return setOnServer([]);
+    account
+      .call<{ tables: TableBrief[] }>("/api/me/tables")
+      .then((r) => setOnServer(r.tables))
+      .catch(() => {}); // no internet: the table on this phone is still listed
+  };
+  useEffect(() => {
+    lookUp();
+    const onShow = () => document.visibilityState === "visible" && lookUp();
+    document.addEventListener("visibilitychange", onShow);
+    return () => document.removeEventListener("visibilitychange", onShow);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account.token]);
+  // the table on this phone sends a copy to the server (parked): it's listed once, as this phone's
+  const yours = [...(local ? [local] : []), ...onServer.filter((t) => !local || (!t.parked && t.room !== local.room))]
+    .sort((a, b) => b.last - a.last);
+  const goBack = async (t: TableBrief) => {
+    if (t.local) {
+      if (!user) remember();
+      history.replaceState(null, "", "/");
+      return onJoin({ room: t.room, name: who() || "You", solo: true, local: true, auth: account.token ?? undefined,
+        user: user ? { id: user.id, name: user.name } : undefined });
+    }
+    if (!t.parked) return sit(t.room);
+    try { // your bot table on your other phone comes to the server, and that phone follows it
+      sit((await account.call<{ room: string }>("/api/me/tables/claim", {})).room);
+    } catch (e) {
+      setErr((e as Error).message);
+      lookUp();
+    }
+  };
+  const quit = async (t: TableBrief & { token?: string }, quiet = false) => {
+    setErr(null);
+    if (t.local) { // as Leave, then Quit table, at the table: it ends here and on your other devices
+      forgetTable();
+      setKept(null);
+      setOnServer((all) => all.filter((s) => !s.parked)); // its copy on the server ends with it
+      if (t.token)
+        await fetch("/api/rooms/quit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: t.room, token: t.token }) }).catch(() => {});
+      return quiet || lookUp();
+    }
+    try {
+      await account.call("/api/me/tables/quit", { room: t.parked ? `parked:${t.room}` : t.room });
+    } catch (e) {
+      if (!quiet) setErr((e as Error).message);
+    }
+    if (!quiet) lookUp();
+  };
   // bot tables play on this phone, unless the menu's switch says otherwise
   const atHome = () => botsHere() && offlineReady();
 
@@ -148,8 +221,12 @@ export default function Lobby({ onJoin, notice, myTable, account, friends, onAcc
     </>
   );
 
+  // one practice table at a time: a new one ends the one you had (Learn to play and Your mistakes aren't listed)
+  const endPractice = () => Promise.all(yours.filter((t) => !t.people.length).map((t) => quit(t, true)));
+
   const create = async (solo: boolean) => {
     if (!who()) return setErr("Enter your name");
+    if (solo) await endPractice();
     if (solo && atHome()) return here();
     setBusy(true);
     try {
@@ -186,6 +263,7 @@ export default function Lobby({ onJoin, notice, myTable, account, friends, onAcc
   };
   const practice = async (id: string) => {
     if (!who()) return setErr("Enter your name");
+    await endPractice();
     if (atHome()) return here(id);
     setBusy(true);
     try {
@@ -317,6 +395,29 @@ export default function Lobby({ onJoin, notice, myTable, account, friends, onAcc
     </>
   );
 
+  // Learn & practice: Learn to play, Your mistakes and every lesson, on one page
+  const learnButton = (
+    <button className="learn puzzles" onClick={() => onHub(true)}>
+      Learn &amp; practice {puzzles > 0 && <span className="count">{puzzles}</span>}
+    </button>
+  );
+  if (hub && !urlRoom)
+    return (
+      <LearnHub
+        account={account}
+        mistakes={puzzles}
+        mistakeKinds={puzzleKinds}
+        error={err}
+        onClose={() => {
+          setErr(null);
+          onHub(false);
+        }}
+        onLearn={onLearn}
+        onPuzzles={user ? onPuzzles : undefined}
+        onPractice={practice}
+      />
+    );
+
   // --- signed in ---------------------------------------------------------------------------------------
   if (user)
     return (
@@ -330,20 +431,12 @@ export default function Lobby({ onJoin, notice, myTable, account, friends, onAcc
         </div>
         {crest}
         {friendNote && <p className="tag">{friendNote}</p>}
-        {!urlRoom && (localTable || myTable) && (
-          <button className="primary" onClick={() => (localTable ? onJoin({ room: localTable, name: who(), solo: true, local: true, auth: account.token ?? undefined, user: { id: user.id, name: user.name } }) : sit(myTable!))}>
-            Back to your table
-          </button>
-        )}
+        {!urlRoom && <YourTables tables={yours} onOpen={goBack} onQuit={quit} />}
         {!urlRoom && <Friends account={account} view={friends} onPlay={playWith} onJoin={(room) => sit(room)} />}
         {tables}
         {wifiJoin}
         {err && <div className="error">{err}</div>}
-        {!urlRoom && (
-          <button className="learn" onClick={onLearn}>
-            Learn to play
-          </button>
-        )}
+        {!urlRoom && learnButton}
         <Feedback />
         <Privacy />
         <WhatsNew />
@@ -419,18 +512,10 @@ export default function Lobby({ onJoin, notice, myTable, account, friends, onAcc
             Your name
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength={24} autoComplete="given-name" />
           </label>
-          {!urlRoom && localTable && (
-            <button className="primary" onClick={() => onJoin({ room: localTable, name: who() || "You", solo: true, local: true })}>
-              Back to your table
-            </button>
-          )}
+          {!urlRoom && <YourTables tables={yours} onOpen={goBack} onQuit={quit} />}
           {tables}
           {wifiJoin}
-          {!urlRoom && (
-            <button className="learn" onClick={onLearn}>
-              Learn to play
-            </button>
-          )}
+          {!urlRoom && learnButton}
           {accounts && (
             <button className="link" onClick={() => setGuest(false)}>
               Sign in instead

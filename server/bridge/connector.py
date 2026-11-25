@@ -28,6 +28,7 @@ from zoneinfo import ZoneInfo
 
 from . import site
 from .coach import board_sheet, contract_text, hint_sheet, instructions, table_sheet
+from .puzzles import Puzzles
 from .stats import own_play, stats_from_facts
 from .trends import bidding_rows, filter_boards, in_range, mistakes, overview, when
 
@@ -82,6 +83,110 @@ def redirect_app(uri: str) -> str | None:
         return app
     return next((app for pat, app in PATTERNS if pat.fullmatch(uri)), None)
 
+# What each field a tool returns means, where the name alone doesn't say (tests/test_connector_fields.py checks that
+# every field a tool returns is described here or plain from its name). They go at the end of the tool's description,
+# so the AI reads the numbers the way the app means them.
+SECOND_TABLE = ("The second table is the same deal played again, as at a team match, with a level 10 bot in the "
+                "player's seat and the other three seats as at their table (a bot at the table's level stands in for "
+                "any other person). Both results are scored at duplicate and the difference turned into IMPs on the "
+                "standard 0-24 scale; plus means the player did better than the level 10 bot.")
+STATS_FIELDS = {
+    "days": "the days looked back",
+    "now": "the figures for those days",
+    "before": "the same figures for the stretch of days just before, to compare (null if none)",
+    "boards": "boards finished",
+    "all_boards": "boards finished before any were left out",
+    "second_imps": "IMPs per board against the second table, averaged (null until a board has one)",
+    "second_boards": "boards that have a second table result",
+    "second_bidding": "the bidding's share of second_imps per board: both contracts scored as if played with every "
+                      "card seen, so the card play doesn't count",
+    "second_declaring": "the play's share (second_imps minus the bidding's share) per board, on boards the "
+                        "player's side declared (including when their partner declared)",
+    "second_defending": "the play's share per board on boards the other side declared; partner's defense and the "
+                        "other table's bots count too",
+    "vs_par": "average score against double-dummy par per board (plus beats par)",
+    "at_or_above_par": "percent of boards scoring at or above par",
+    "declared": "hands the player declared",
+    "makeable": "of those, contracts that make with every card seen",
+    "made": "of the makeable ones, how many the player made",
+    "declarer_lost": "tricks lost per hand against double dummy as declarer (dummy's cards too)",
+    "defended": "hands the player defended",
+    "defender_lost": "tricks given away per hand against double dummy on defense",
+    "leads": "opening leads the player made",
+    "costly_leads": "opening leads that let declarer take one more trick double dummy",
+    "off_system_per_10": "calls off the system per 10 boards",
+    "off_system_by": "the bidding areas with most calls off the system, as [area, count]",
+    "off_system_points": "points per off-system call that decided the contract (nobody bid after), against the "
+                         "contract the system's call would have reached, both double dummy (plus: leaving the system "
+                         "helped)",
+    "off_system_helped": "off-system calls that scored better than the system's call",
+    "off_system_cost": "off-system calls that scored worse",
+    "off_system_same": "off-system calls that made no difference",
+    "hints_per_board": "hints used per board (counted over all boards)",
+    "undos_per_board": "undos per board (all boards)",
+    "coach_per_board": "AI coach questions on the player's turn per board (all boards)",
+    "trend": "score against par per day, oldest first",
+    "day": "the day, YYYY-MM-DD",
+    "level": "the player's level on the bots' 1 to 10 scale, from their most recent hands as declarer or defender "
+             "(level.level overall, level.low and level.high the 95% range, level.declaring and level.defending "
+             "each role; null until level.hands reaches level.needed)",
+    "low": "the bottom of the level's 95% range",
+    "high": "the top of the level's 95% range",
+    "declaring": "the level as declarer (1 to 10)",
+    "defending": "the level on defense (1 to 10)",
+    "hands": "hands the level is worked out from",
+    "needed": "hands needed before a level is shown",
+    "bots": "the bot level at the player's latest table",
+    "left_out": "help that removed boards from the figures (always empty here)",
+}
+BOARD_SECOND_FIELDS = {
+    "second_table": "the same deal at the second table (missing until it has been played, a few minutes after the "
+                    "board)",
+    "bot_level_in_your_seat": "always 10",
+    "other_bots_level": "the level of the bots in the other seats",
+    "their_auction": "the second table's auction, with what each call meant",
+    "their_contract": "the contract the second table reached",
+    "their_result": "how many tricks it made",
+    "their_score_for_you": "its duplicate score for the player's side",
+    "your_score_at_duplicate": "the player's own result scored the same way",
+    "imps_for_you": "your_score_at_duplicate against their_score_for_you in IMPs (plus: the player did better)",
+    "bidding_imps": "the bidding's share of imps_for_you: both contracts scored as if played with every card seen",
+    "play_imps": "the rest of imps_for_you: the card play at both tables",
+    "second_table_imps": "IMPs against the second table (null until it has been played)",
+}
+# In the example boards that coaching_overview and mistake_patterns quote
+EXAMPLE_FIELDS = {
+    "better": "the cards that would have lost nothing, double dummy",
+    "after": "the help the player asked for right before choosing (a hint or an AI coach question)",
+    "led": "the opening lead",
+    "best": "the opening leads that would have lost nothing, double dummy",
+    "holding": "the player's cards in the suit they led from",
+    "against": "notrump or a suit contract",
+}
+BOARD_FIELDS = {k: v for k, v in BOARD_SECOND_FIELDS.items() if k != "second_table_imps"}
+# coaching_overview's your_mistakes (puzzles.py)
+PUZZLE_FIELDS = {
+    "your_mistakes": "the app's Your mistakes puzzles: the player's own past cards marked mistake and calls that cost "
+                     "on average, set up again at that spot for them to answer (all time, whatever stretch is asked; "
+                     "kept out of my_stats)",
+    "waiting": "puzzles ready to try now",
+    "kinds": "the waiting puzzles by kind, as the player can pick them to practice: bidding (calls), suit and notrump "
+             "(declarer play in that kind of contract), leads (opening leads) and defense (the rest of defense, in any "
+             "contract)",
+    "tried": "puzzles answered at least once",
+    "right": "right answers so far (a card is right unless clearly worse on the odds than the best one; a call is "
+             "right when it's the system's)",
+    "wrong": "wrong answers so far (each brings that puzzle back in 3 days)",
+    "done": "puzzles answered right twice, which then stop coming back",
+    "removed": "puzzles the player removed after a wrong answer because they disagree it was a mistake; they never "
+               "come back (worth asking about: the player may have a point, or may be missing the idea)",
+}
+
+
+def fields_text(fields: dict[str, str]) -> str:
+    """A field guide for the end of a tool's description."""
+    return " Fields: " + "; ".join(f"{k}: {v}" for k, v in fields.items()) + "."
+
 
 TOOLS = [
     {"name": "last_board_review",
@@ -89,15 +194,18 @@ TOOLS = [
      "description": "The board the player finished most recently: all four hands, the auction with what each call "
                     "meant in the app's system, the play trick by trick, the result, double-dummy par, and the "
                     "app's review (calls that differed from the system, cards that cost tricks, each marked "
-                    "mistake or unlucky with its odds). Use this first when the player asks about 'that hand' or "
-                    "'the last board'.",
+                    "mistake or unlucky with its odds), and the same deal at the second table. Use this first when "
+                    "the player asks about 'that hand' or 'the last board'. " + SECOND_TABLE
+                    + fields_text(BOARD_FIELDS),
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
      "annotations": {"readOnlyHint": True, "openWorldHint": False}},
     {"name": "recent_boards",
      "title": "My boards",
      "description": "The player's finished boards, newest first, a page at a time: when, contract, result, score, "
-                    "par, and a key to pass to board_review or board_reviews. Covers every saved board; filter by "
-                    "dates, role, contract and calls off the system, and pass next_cursor to get the next page.",
+                    "par, IMPs against the second table, and a key to pass to board_review or board_reviews. Covers "
+                    "every saved board; filter by dates, role, contract and calls off the system, and pass "
+                    "next_cursor to get the next page. " + SECOND_TABLE
+                    + fields_text({"second_table_imps": BOARD_SECOND_FIELDS["second_table_imps"]}),
      "inputSchema": {"type": "object", "properties": {
          "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Boards per page (default 10)"},
          "cursor": {"type": "string", "description": "next_cursor from the previous page"},
@@ -115,14 +223,15 @@ TOOLS = [
     {"name": "board_review",
      "title": "Review a board",
      "description": "The full review of one of the player's finished boards, by the key from recent_boards. Same "
-                    "contents as last_board_review.",
+                    "contents as last_board_review." + fields_text(BOARD_FIELDS),
      "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}}, "required": ["key"],
                      "additionalProperties": False},
      "annotations": {"readOnlyHint": True, "openWorldHint": False}},
     {"name": "board_reviews",
      "title": "Review several boards",
      "description": "Full reviews of up to 10 boards in one call, by their keys from recent_boards or the examples "
-                    "in coaching_overview and mistake_patterns.",
+                    "in coaching_overview and mistake_patterns. Same contents as last_board_review."
+                    + fields_text(BOARD_FIELDS),
      "inputSchema": {"type": "object", "properties": {
          "keys": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 10}},
          "required": ["keys"], "additionalProperties": False},
@@ -134,7 +243,9 @@ TOOLS = [
                     "contracts made (notrump vs suit, part score vs game vs slam), opening leads by what they were "
                     "led from and how often they cost, costly cards by kind, bidding areas where the player leaves "
                     "the system with how those boards scored against par, hints, undos and the first choices they "
-                    "took back, their level, and their 'working on' notes. Each group quotes example boards.",
+                    "took back, their level, their 'working on' notes, and how they do at Your mistakes. Each group "
+                    "quotes example boards."
+                    + fields_text({**EXAMPLE_FIELDS, **PUZZLE_FIELDS}),
      "inputSchema": {"type": "object", "properties": {
          "since": {"type": "string", "description": "First day, YYYY-MM-DD (Pacific time)"},
          "until": {"type": "string", "description": "Last day, YYYY-MM-DD (Pacific time)"},
@@ -149,7 +260,8 @@ TOOLS = [
                     "kind (opening lead, later lead, follow, ruff, discard), those involving trumps, and counting "
                     "checks (led a trump when the opponents had none, discarded a sure winner, ruffed partner's "
                     "winning trick). Rates are costly cards out of all cards of that kind the player chose; each "
-                    "card is marked mistake or unlucky where the odds are known. Examples carry board keys.",
+                    "card is marked mistake or unlucky where the odds are known. Examples carry board keys."
+                    + fields_text(EXAMPLE_FIELDS),
      "inputSchema": {"type": "object", "properties": {
          "since": {"type": "string", "description": "First day, YYYY-MM-DD (Pacific time)"},
          "until": {"type": "string", "description": "Last day, YYYY-MM-DD (Pacific time)"},
@@ -210,9 +322,12 @@ TOOLS = [
      "title": "My stats",
      "description": "The player's results over recent days, as on the app's My stats: boards played, contracts "
                     "made, tricks lost against double dummy, opening-lead costs, calls off the system, hints and "
-                    "undos used, and their level on the bots' 1 to 10 scale. Score against par scores each board "
-                    "the same way as par: game and part-score bonuses on the board, and at rubber the part score "
-                    "already below the line counts towards game.",
+                    "undos used, their level on the bots' 1 to 10 scale, and IMPs per board against the second "
+                    "table, split into bidding, declaring and defending. Score against par scores each board the "
+                    "same way as par: game and part-score bonuses on the board, and at rubber the part score "
+                    "already below the line counts towards game. " + SECOND_TABLE + " A single board says more "
+                    "about the cards than the player; the averages over many boards are the measure."
+                    + fields_text(STATS_FIELDS),
      "inputSchema": {"type": "object", "properties": {
          "days": {"type": "integer", "minimum": 1, "maximum": 365, "description": "Days to look back (default 30)"},
          "own_play_only": {"type": "boolean", "description": "Leave out calls and cards made right after a hint or "
@@ -535,6 +650,10 @@ class Connector:
             if facts:
                 out["from"], out["to"] = when(min(f["at"] for f in facts)), when(max(f["at"] for f in facts))
             out["working_on"] = self._notes(uid)
+            try:
+                out["your_mistakes"] = Puzzles(self.store, self.accounts).summary(uid)
+            except Exception:  # a bonus
+                pass
             return _text(out)
         if name == "mistake_patterns":
             facts = self._range(uid, args)
@@ -569,6 +688,7 @@ class Connector:
             **({"your_score_for_par": f["score_for_par"]} if f.get("rubber") and f["contract"] else {}),
             "par_for_you": f["par"], "partner": f["partner"] or "a bot",
             "dd_tricks_lost_by_you": f["lost"], "calls_off_system": len(f["off_system"]),
+            "second_table_imps": f.get("second_imps"),
             "hints": f["hints"], "undos": f["undos"]} for f in page]}
         if start + limit < len(rows):
             out["next_cursor"] = str(start + limit)

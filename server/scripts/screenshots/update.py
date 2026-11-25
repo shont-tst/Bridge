@@ -8,7 +8,7 @@ from pathlib import Path
 from PIL import Image, ImageChops
 
 SIZE = (834, 1194)
-NAMES = ["bidding", "play", "review", "stats", "learn"]
+NAMES = ["bidding", "play", "review", "stats", "learn", "practice"]
 # a pixel counts as changed when a color moves by more than this, and a shot when more than this share of pixels did
 # (so the same screen, scaled the same way, never counts as a change)
 PIXEL, SHARE = 24, 0.0005

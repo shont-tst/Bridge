@@ -5,6 +5,7 @@ particular site. Unset, the app is plain "Bridge" and files no feedback issues: 
 - BRIDGE_ORIGIN: the site's address, e.g. https://bridge.example.com (passkeys, links, notifications).
 - BRIDGE_FEEDBACK_REPO: the GitHub repository Feedback suggestions are filed in, e.g. owner/name (with
   BRIDGE_FEEDBACK_TOKEN). Best a private one: suggestions carry players' names and boards.
+- BRIDGE_SOURCE_URL: where the app's open source code is, e.g. https://github.com/owner/name. What's new links to it.
 """
 from __future__ import annotations
 
@@ -24,3 +25,9 @@ def origin() -> str | None:
 
 def feedback_repo() -> str | None:
     return os.environ.get("BRIDGE_FEEDBACK_REPO", "").strip().strip("/") or None
+
+
+def source_url() -> str | None:
+    """The open source code's address, only if it is a web address (it goes into the page as a link)."""
+    u = os.environ.get("BRIDGE_SOURCE_URL", "").strip()
+    return u if u.startswith("https://") else None

@@ -15,6 +15,7 @@ from .bots.signals import METHODS
 
 from .core.auction import Auction
 from .core.cards import SEATS, partner, rank_value
+from .game.second import fill_split
 from .stats import board_facts
 
 SUIT = {"S": "♠", "H": "♥", "D": "♦", "C": "♣", "N": "NT"}
@@ -49,6 +50,10 @@ Use these tools to see the player's hands. Explain in plain, friendly words, as 
   boards for each tip; and suggest one thing to work on at a time. Calls and cards marked you_asked_first came right
   after a hint or an AI coach question, so they aren't a fair sample of the player's own judgment;
   first_choices_taken_back are the honest first tries they took back with Undo.
+- The second table (second_table, second_* and *_imps fields) is the same deal played again with a level 10 bot in
+  the player's seat and the other seats as at their table, scored in IMPs as at a team match: plus means the player
+  did better. The bidding's share scores both contracts double dummy; the play's share is the rest, split into
+  declaring and defending. One board says more about the cards than the player; read the averages over many boards.
 - coaching_notes holds what the player is working on. Read it at the start, check whether that area got better since
   the note's date, and add or remove a note only when the player agrees.
 - Write suits as symbols (♠ ♥ ♦ ♣), not letters, and use American spelling. Keep answers short unless asked for more:
@@ -212,6 +217,25 @@ def _undone(rec: dict, seat: str) -> list[dict]:
     return out
 
 
+def _second(rec: dict, seat: str) -> dict | None:
+    """The same deal at the second table (game/second.py), for the player in `seat`: what the level 10 bot in their
+    seat reached and how the two results compare in IMPs (connector.BOARD_SECOND_FIELDS says what each field means)."""
+    out = ((fill_split(rec).get("review") or {}).get("second") or {}).get(seat)
+    if not isinstance(out, dict) or out.get("imps") is None:
+        return None
+    c = out.get("contract")
+    calls = [a["call"] for a in out.get("auction") or []]
+    sheet = {"bot_level_in_your_seat": out.get("level"), "other_bots_level": out.get("others"),
+             "their_auction": _auction(rec.get("dealer", "N"), calls, rec.get("conventions")),
+             "their_contract": contract_text(c) or "Passed out",
+             "their_result": f"made {out.get('tricks', 0)} tricks" if c else None,
+             "their_score_for_you": out.get("score"), "your_score_at_duplicate": out.get("table_score"),
+             "imps_for_you": out["imps"]}
+    if out.get("bidding_imps") is not None:
+        sheet["bidding_imps"], sheet["play_imps"] = out["bidding_imps"], out.get("play_imps")
+    return sheet
+
+
 def board_sheet(rec: dict, seat: str | None = None) -> dict:
     """A finished board (a saved record, or one in a room's history) as the player in `seat` would review it."""
     seat = seat or rec.get("seat") or "S"
@@ -249,6 +273,9 @@ def board_sheet(rec: dict, seat: str | None = None) -> dict:
         "you_used": {"hints": help_.get("hints", 0), "undos": help_.get("undos", 0),
                      "ai_coach_questions": help_.get("coach", 0)},
     }
+    second = _second(rec, seat)
+    if second:
+        out["second_table"] = second
     undone = _undone(rec, seat)
     if undone:
         out["first_choices_taken_back"] = undone

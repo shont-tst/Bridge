@@ -251,163 +251,111 @@ class TestAtTheTable:
 
 
 def _deal_to_bot_claim(t: Table, rng):
-    """Bid and play (bots, and random cards for the human) until a bot claims: an offer, or a claim with nobody on
-    the other side to ask."""
+    """Bid and play (bots, and random cards for the human) until a bot claims."""
     while t.phase != DONE:
-        if t.claim_offer:
-            return "offer"
         c = t.controller_to_act()
         if t.is_bot_turn():
-            step = t.bot_step()
-            if step.get("claim"):
-                return "claimed"
+            if t.bot_step().get("claim"):
+                return True
         elif t.phase == PLAYING:
             t.play_card(c, rng.choice(t.play.legal_cards()))
         else:
             t.make_call(t.auction.next_to_call, t.engine.choose(t.hands[t.auction.next_to_call], t.auction).call)
-    return None
+    return False
+
+
+def _play_out(t: Table) -> int:
+    """Play out a claim on the table, as the room's bot loop does. Returns how many cards it played."""
+    n = 0
+    while t.claiming:
+        assert t.is_bot_turn() and not t.can_claim(t.controller_to_act())
+        t.bot_step()
+        n += 1
+    return n
 
 
 @pytest.mark.bot_claims
 class TestBotClaims:
-    def _find(self, want):
+    def _find(self, seats=1):
         rng = random.Random(7)
-        for seed in range(1, 150):
+        for seed in range(1, 300):
             room = _room_at_lead(seed)
-            if _deal_to_bot_claim(room.table, rng) == want:
+            for name in ["Bob", "Cy", "Di"][:seats - 1]:
+                room.join(name)
+            if seats > 1:
+                room.new_board()
+            if _deal_to_bot_claim(room.table, rng):
                 return room
-        raise AssertionError(f"no bot {want} found")
+        raise AssertionError("no bot claim found")
 
-    def test_offer_waits_for_the_other_side(self):
-        room = self._find("offer")
+    def test_a_bot_claim_plays_out_on_the_table(self):
+        # Nobody is asked to accept: the claim is certain. Its cards are played out a card at a time for all to see.
+        room = self._find()
         t = room.table
-        offer = room.state_for("S", room.players["S"])["table"]["claim_offer"]
-        by = offer["by"]
-        assert offer["you_decide"] and not same_side(by, "S") and offer["tricks"] >= 2
-        assert sorted(offer["cards"]) == sorted(t.play.hands[by])
-        if by == t.contract.declarer:  # dummy's cards come with declarer's claim
-            assert sorted(offer["dummy_cards"]) == sorted(t.play.hands[t.play.dummy])
-        else:
-            assert offer["dummy_cards"] is None
-        assert not t.is_bot_turn() and not t.can_claim("S")
+        by, left = t.claiming["by"], t.claiming["tricks"]
+        before, cards = t.play.tricks_won(side(by)), 4 * left - len(t.play.current.cards)
+        shown = room.state_for("S", room.players["S"])["table"]
+        assert shown["claiming"] == {"by": by, "tricks": left} and left >= 2
+        assert not shown["your_turn"] and not shown["legal_cards"] and not shown["can_claim"]
         with pytest.raises(ValueError):
             t.play_card(t.controller_to_act(), t.play.legal_cards()[0])
+        assert _play_out(t) == cards
+        assert t.phase == DONE and t.result.claimed == by and t.result.claimed_tricks == left
+        assert t.result.claim_played and t.play.tricks_won(side(by)) == before + left
+        assert by in t.result.claim_cards
 
-    def test_accept_gives_the_claimer_every_trick(self):
-        room = self._find("offer")
+    def test_the_room_plays_it_out_and_keeps_the_result(self):
+        room = self._find()
         t = room.table
-        by = t.claim_offer["by"]
-        before, left = t.play.tricks_won(side(by)), t.tricks_left()
-        asyncio.run(room.handle("S", {"type": "claim_answer", "accept": True}))
-        assert t.phase == DONE and t.result.claimed == by
-        assert t.play.tricks_won(side(by)) == before + left
+        by = t.claiming["by"]
+
+        async def run():
+            room.kick_bots()
+            await room._bot_task
+        asyncio.run(run())
+        assert t.phase == DONE and t.result.claimed == by and room.history[-1]["claimed"] == by
+
+    def test_saved_mid_way_it_ends_on_restore(self):
+        room = self._find()
+        t = room.table
+        by = t.claiming["by"]
+        t.bot_step()  # one card of the claim played
         again = Room.restore(room.snapshot())
-        assert again.table.phase == DONE and again.table.result.claimed == by
+        assert again.table.phase == DONE and again.table.result.claimed == by and not again.table.claiming
+        assert again.history and again.history[-1]["claimed"] == by
 
-    def test_reject_plays_on_and_the_bot_does_not_claim_again(self):
-        room = self._find("offer")
+    def test_undo_takes_back_the_claim_too(self):
+        room = self._find()
         t = room.table
-        by = t.claim_offer["by"]
-        t.answer_claim("S", False)
-        assert t.claim_offer is None and t.is_bot_turn() and by in t.claim_refused
-        rng = random.Random(3)
-        while t.phase != DONE:
-            assert t.claim_offer is None
-            if t.is_bot_turn():
-                assert not t.bot_step().get("claim")
-            else:
-                t.play_card(t.controller_to_act(), rng.choice(t.play.legal_cards()))
-
-    def test_a_rejected_claim_stays_rejected_after_undo(self):
-        # A reported Board 6: after Reject and then Undo, the bot claimed again and play stuck
-        room = self._find("offer")
-        t = room.table
-        by = t.claim_offer["by"]
-        t.answer_claim("S", False)
-        rng = random.Random(4)
-        while t.phase != DONE and t.controller_to_act() in t.bot_seats:
-            t.bot_step()
-        if t.phase == DONE:
+        if not t.can_undo():
             return
-        t.play_card("S", rng.choice(t.play.legal_cards()))
+        t.bot_step()
         t.undo()
-        assert by in t.claim_refused
-        while t.phase != DONE:
-            assert t.claim_offer is None
-            if t.is_bot_turn():
-                assert not t.bot_step().get("claim")
-            else:
-                t.play_card(t.controller_to_act(), rng.choice(t.play.legal_cards()))
+        assert not t.claiming and t.phase == PLAYING and not t.is_bot_turn()
 
-    def test_only_the_other_side_answers(self):
-        room = self._find("offer")
+
+class TestPeopleAtTheTable:
+    def test_with_only_bots_a_claim_ends_at_once(self):
+        room = TestAtTheTable()._claimable()
         t = room.table
-        by = t.claim_offer["by"]
-        with pytest.raises(ValueError):
-            t.answer_claim(by, True)
+        t.claim(t.controller_to_act())
+        assert t.phase == DONE and not t.claiming and not t.result.claim_played
 
-    def test_offer_survives_a_restart(self):
-        room = self._find("offer")
-        again = Room.restore(room.snapshot())
-        assert again.table.claim_offer == room.table.claim_offer and not again.table.is_bot_turn()
-
-    def test_a_person_playing_both_hands_decides(self):
-        # the bot partner (N) declares, so South plays both hands: a defender's claim is put to South, not taken
-        for seed in range(1, 40):
-            t = _room_at_lead(seed).table
-            if _deal_to_bot_claim(t, random.Random(7)) == "offer" and t.contract.declarer == "N" \
-                    and t.claim_offer["by"] in "EW":
+    def test_with_other_people_a_claim_plays_out(self):
+        rng = random.Random(5)
+        for seed in range(1, 200):
+            room = Room("CLAIM", seed=seed)
+            room.join("Ann")
+            room.join("Bob")
+            room.new_board()
+            t = room.table
+            if _deal_to_claim(t, rng):
                 break
         else:
-            pytest.fail("no deal where a defender claims against North")
-        assert t.claim_offer["deciders"] == ["S"]
-
-    def test_nobody_to_ask_claims_at_once(self):
-        room = self._find("claimed")
-        t = room.table
-        assert t.phase == DONE and same_side(t.result.claimed, "S")
-
-    def test_a_claim_nobody_saw_keeps_its_cards_for_a_pop_up(self):
-        # Feedback #156: a bot partner's claim on defense, with only bots to decide, ended the hand without showing
-        # its cards. They're kept on the result, and South (who didn't see them) isn't among those who saw them.
-        room = self._find("claimed")
-        r = room.table.result
-        assert r.claim_cards and r.claimed in r.claim_cards and sum(map(len, r.claim_cards.values())) > 0
-        assert "S" not in r.claim_saw and r.claimed in r.claim_saw
-        shown = room.state_for("S", room.players["S"])["table"]["result"]
-        assert shown["claim_cards"] == r.claim_cards
-
-    def test_accepting_a_claim_counts_as_seeing_it(self):
-        room = self._find("offer")
-        t = room.table
-        by = t.claim_offer["by"]
-        cards = sorted(t.play.hands[by])
-        asyncio.run(room.handle("S", {"type": "claim_answer", "accept": True}))
-        assert "S" in t.result.claim_saw and sorted(t.result.claim_cards[by]) == cards
-        again = Room.restore(room.snapshot())
-        assert "S" in again.table.result.claim_saw  # a restored claim doesn't pop up again
-
-
-@pytest.mark.bot_claims
-def test_with_two_defenders_the_first_accept_settles_it():
-    # Feedback #164: the first to accept goes straight on to the score; the partner, who hadn't answered, gets the
-    # claimer's cards in a pop-up to look over (they're not among those who saw it). No board starts until both
-    # tap Next board, as usual.
-    rng = random.Random(7)
-    for seed in range(1, 300):
-        room = Room("CLAIM", seed=seed)
-        room.join("Ann")
-        room.join("Bob")
-        room.new_board()
-        t = room.table
-        if _deal_to_bot_claim(t, rng) == "offer" and len(t.claim_offer["deciders"]) == 2:
-            break
-    else:
-        raise AssertionError("no claim offer to two people found")
-    first, other = t.claim_offer["deciders"]
-    by = t.claim_offer["by"]
-    asyncio.run(room.handle(first, {"type": "claim_answer", "accept": True}))
-    assert t.phase == DONE and t.result.claimed == by and t.result.claim_accepted == first
-    assert first in t.result.claim_saw and other not in t.result.claim_saw
-    shown = room.state_for(other, room.players[other])["table"]
-    assert shown["claim_offer"] is None and shown["result"]["claim_cards"] == t.result.claim_cards
+            raise AssertionError("no claimable position found")
+        me = t.controller_to_act()
+        left = t.tricks_left()
+        asyncio.run(room.handle(me, {"type": "claim"}))
+        assert t.claiming and t.claiming["by"] == me
+        _play_out(t)
+        assert t.phase == DONE and t.result.claimed == me and t.result.claimed_tricks == left and t.result.claim_played

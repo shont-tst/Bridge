@@ -4,9 +4,10 @@ import type { ConventionPage as Page } from "../types";
 import SuitText from "./SuitText";
 
 /** One convention: how it works, example auctions with the system's meanings, and a practice button. */
-export default function ConventionPage({ id, practicing, onPractice, onBack, home }: {
+export default function ConventionPage({ id, practicing, onPractice, onBack, home, back = "Settings" }: {
   id: string;
-  home?: boolean; // opened from the home screen's menu: Practice starts a bot table
+  back?: string; // where the back button goes
+  home?: boolean; // opened from the home screen (its menu, or Learn & practice): Practice starts a bot table
   practicing: boolean;
   onPractice: (on: boolean) => void;
   onBack: () => void;
@@ -19,7 +20,7 @@ export default function ConventionPage({ id, practicing, onPractice, onBack, hom
   return (
     <div className="lesson">
       <button className="small" onClick={onBack}>
-        ‹ Settings
+        ‹ {back}
       </button>
       {!page ? (
         <p className="muted">Loading…</p>

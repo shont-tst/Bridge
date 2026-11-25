@@ -36,6 +36,7 @@ from .push import Push
 from .social import Social
 from .stats import history_from_facts, stats_from_facts
 from .feedback import Feedback
+from .puzzles import KINDS, Puzzles
 from . import backfill, offline, site
 from .connector import Connector, OAuthError
 from .store import open_store
@@ -45,8 +46,10 @@ accounts = Accounts(store)
 feedback = Feedback(store)
 push = Push(accounts)
 social = Social(accounts, push)
+puzzles = Puzzles(store, accounts)
 rooms = Rooms(store, save_board=accounts.save_board, drop_board=accounts.drop_board,
-              save_settings=accounts.save_table_settings)
+              save_settings=accounts.save_table_settings, save_puzzle=puzzles.mark)
+Room.puzzle_loader = puzzles.spec  # Your mistakes: the next puzzle at a puzzle table
 backups = Backups(store)
 admin = Admin(store, accounts)
 connector = Connector(store, accounts, rooms)
@@ -245,10 +248,7 @@ def save_table_defaults(body: dict = Body(...), authorization: str | None = Head
     return now
 
 
-@app.post("/api/rooms")
-def create_room(request: Request, body: dict | None = Body(None), authorization: str | None = Header(None)):
-    body = body or {}
-    chosen, user = _chosen_settings(body, authorization)
+def _new_room(request: Request, chosen: dict, user: dict | None) -> Room:
     # the Admin page's table limit: past it the tables in play would slow down, so wait for one to finish. The owner
     # can always start one.
     limit = admin.table_limit()
@@ -262,6 +262,20 @@ def create_room(request: Request, body: dict | None = Body(None), authorization:
         room = rooms.create(chosen)
     except RuntimeError:  # full: a flood of rooms, or far more players than this app expects
         raise HTTPException(503, "The server is busy. Please try again in a few minutes.")
+    return room
+
+
+@app.post("/api/rooms")
+def create_room(request: Request, body: dict | None = Body(None), authorization: str | None = Header(None)):
+    body = body or {}
+    chosen, user = _chosen_settings(body, authorization)
+    room = _new_room(request, chosen, user)
+    if body.get("replay"):  # Play on from here, or Play this deal again, from a review (game/replay.py)
+        try:
+            room.start_replay(body["replay"])
+        except (TypeError, ValueError, KeyError) as e:
+            rooms.rooms.pop(room.code, None)
+            raise HTTPException(400, f"That deal can't be played again: {e}")
     if body.get("tutorial") is not None:  # Learn to play steps 6 and 7 play at a real table
         try:
             room.start_tutorial(int(body["tutorial"]))
@@ -460,6 +474,35 @@ async def my_table(authorization: str | None = Header(None)):
     return found
 
 
+@app.get("/api/me/tables")
+async def my_tables(authorization: str | None = Header(None)):
+    """The tables you still have a seat at, for the home screen's Your tables (Rooms.tables_of)."""
+    user = await asyncio.to_thread(_signed_in, authorization)
+    return {"tables": await rooms.tables_of(user["id"])}
+
+
+@app.post("/api/me/tables/claim")
+async def claim_my_table(authorization: str | None = Header(None)):
+    """Your tables' Play on your bot table on another phone: it comes to the server, for this device to sit at."""
+    user = await asyncio.to_thread(_signed_in, authorization)
+    code = rooms.claim_parked(user["id"])
+    if not code:
+        raise HTTPException(404, "That table has ended")
+    return {"room": code}
+
+
+@app.post("/api/me/tables/quit")
+async def quit_my_table(body: dict = Body(...), authorization: str | None = Header(None)):
+    """Your tables' Quit table (Rooms.quit_mine)."""
+    user = await asyncio.to_thread(_signed_in, authorization)
+    code = body.get("room")
+    if not isinstance(code, str) or not code or len(code) > 40:
+        raise HTTPException(400, "room, please")
+    if not await rooms.quit_mine(user["id"], code if code.startswith("parked:") else code.upper()):
+        raise HTTPException(404, "That table has ended")
+    return {"ok": True}
+
+
 @app.post("/api/me/device-link")
 def device_link(authorization: str | None = Header(None)):
     return {"code": accounts.make_device_link(_signed_in(authorization))}
@@ -513,6 +556,35 @@ def stats(days: int = 30, hints: bool = False, undo: bool = False, coach: bool =
     """My stats; hints, undo and coach leave out the help the player ticked (stats.leave_out)."""
     user = _signed_in(authorization)
     return stats_from_facts(accounts.facts(user["id"]), days or None, hints, undo, coach)
+
+
+@app.get("/api/me/puzzles")
+def my_puzzles(authorization: str | None = Header(None)):
+    """Your mistakes on the home screen: how many puzzles are waiting (puzzles.py)."""
+    return puzzles.summary(_signed_in(authorization)["id"])
+
+
+@app.post("/api/puzzles/start")
+def start_puzzles(request: Request, body: dict | None = Body(None), authorization: str | None = Header(None)):
+    """A table for Your mistakes, at the first puzzle waiting: the app joins it like any table. `kind` in the body
+    (puzzles.KINDS) practices only that kind; left out, every kind."""
+    user = _signed_in(authorization)
+    chosen, _ = _chosen_settings({}, authorization)
+    kind = (body or {}).get("kind") if isinstance(body, dict) else None
+    queue = puzzles.queue(user["id"], kinds={kind} if kind in KINDS else None)
+    for pos, pid in enumerate(queue):
+        spec = puzzles.spec(user["id"], pid)
+        if spec:
+            break
+    else:
+        raise HTTPException(404, "No mistakes waiting right now.")
+    room = _new_room(request, chosen, user)
+    try:
+        room.start_replay(spec, queue, pos, user["id"])
+    except (TypeError, ValueError, KeyError) as e:
+        rooms.rooms.pop(room.code, None)
+        raise HTTPException(400, f"That puzzle can't be set up: {e}")
+    return {"code": room.code}
 
 
 @app.get("/api/me/boards")
@@ -1055,8 +1127,10 @@ async def play_ws(ws: WebSocket, code: str):
                         hinting = asyncio.create_task(send_hint(room, seat, send))
                     continue
                 await room.handle(seat, msg, token)
+                if msg.get("id"):  # a call or card the app keeps sending until it hears back (Room._fresh)
+                    await send({"type": "ack", "id": msg["id"]})
             except ValueError as exc:
-                await send({"type": "error", "message": str(exc)})
+                await send({"type": "error", "message": str(exc), **({"id": msg["id"]} if msg.get("id") else {})})
     except WebSocketDisconnect:
         pass
     finally:
@@ -1076,9 +1150,11 @@ async def play_ws(ws: WebSocket, code: str):
 
 def named_page(text: str) -> str:
     """The web app's index.html with this site's name (BRIDGE_APP_NAME) as its title and Home Screen name, which the
-    app's own text then reads from the page."""
+    app's own text then reads from the page, and where its open source code is (BRIDGE_SOURCE_URL), for What's new."""
     name = html.escape(site.app_name())
+    source = html.escape(site.source_url() or "")
     text = re.sub(r"<title>[^<]*</title>", f"<title>{name}</title>", text, count=1)
+    text = re.sub(r'(<meta name="source-url" content=")[^"]*(")', lambda m: m[1] + source + m[2], text, count=1)
     return re.sub(r'(<meta name="apple-mobile-web-app-title" content=")[^"]*(")', lambda m: m[1] + name + m[2], text,
                   count=1)
 

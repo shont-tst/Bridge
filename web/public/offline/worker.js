@@ -87,6 +87,10 @@ self.onmessage = async (ev) => {
       queue = queue.then(() => host.receive(m.conn, m.text)).catch(report);
     } else if (m.op === "close") {
       queue = queue.then(() => host.close(m.conn)).catch(report);
+    } else if (m.op === "bench") {
+      // the speed check (bridge/game/speed.py), in turn with the game's work
+      queue = queue.then(() => post({ op: "bench", seconds: py.runPython("from bridge.game.speed import bench\nbench()") }))
+        .catch((e) => post({ op: "error", message: String((e && e.message) || e).slice(-800) }));
     } else if (m.op === "snapshot") {
       queue = queue.then(() => post({ op: "snapshot", text: host.snapshot() })).catch(report);
     }

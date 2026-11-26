@@ -122,8 +122,8 @@ def test_card_hint_is_worked_out_before_it_is_asked_for():
         async with room.lock:
             assert len(room._hints) == 1  # started already
         used = room.help.get("S", {}).get("hints", 0)
-        future = next(iter(room._hints.values()))
-        assert (await room.hint("S")) is await future  # asking reuses it
+        _, final = next(iter(room._hints.values()))
+        assert (await room.hint("S")) is await final  # asking reuses it
         assert room.help["S"]["hints"] == used + 1  # and only asking counts
 
     asyncio.run(go())
@@ -168,6 +168,69 @@ def test_tapping_hint_hurries_its_warm_up():
             [j] = room._hint_jobs.values()
         await room.hint("S")
         assert j.priority == HINT
+
+    asyncio.run(go())
+
+
+def test_a_tapped_hint_stops_once_the_card_is_played():
+    """The app drops a hint that answers after the card, so working on would only hold up the bots' next cards."""
+    async def go():
+        room = _room(4)
+        t = room.table
+        while t.auction.next_to_call != "S":
+            t.make_call(t.auction.next_to_call, "P")
+        t.make_call("S", "3N")
+        for _ in range(3):
+            t.make_call(t.auction.next_to_call, "P")
+        while t.controller_to_act() != "S":
+            t.play_card(t.controller_to_act(), t.play.legal_cards()[0])
+        room.kick_hint()
+        await asyncio.sleep(0)
+        async with room.lock:
+            [j] = room._hint_jobs.values()
+            j.priority = HINT  # as tapping does, without waiting for the answer
+        await room.handle("S", {"type": "play", "card": t.play.legal_cards()[0]})
+        assert j.cancelled and not room._hint_jobs
+
+    asyncio.run(go())
+
+
+def test_a_close_call_answers_at_once_then_firms_up(monkeypatch):
+    """The first 100 layouts answer straight away, marked firming; the answer over 100 more follows on its own."""
+    import bridge.game.room as room_mod
+
+    def first(view, engine, rng):
+        return {"type": "hint", "phase": "playing", "card": "S2", "firming": True}, "close"
+
+    def more(view, engine, close, rng):
+        assert close == "close"
+        return {"type": "hint", "phase": "playing", "card": "H3"}
+
+    monkeypatch.setattr(room_mod, "card_hint_first", first)
+    monkeypatch.setattr(room_mod, "card_hint_more", more)
+
+    async def go():
+        room = _room(4)
+        t = room.table
+        while t.auction.next_to_call != "S":
+            t.make_call(t.auction.next_to_call, "P")
+        t.make_call("S", "3N")
+        for _ in range(3):
+            t.make_call(t.auction.next_to_call, "P")
+        while t.controller_to_act() != "S":
+            t.play_card(t.controller_to_act(), t.play.legal_cards()[0])
+        later = []
+
+        async def send(h):
+            later.append(h)
+
+        hint = await room.hint("S", later=send)
+        assert hint["card"] == "S2" and hint["firming"] and hint["decision"] == f"{t.board}/{len(t.actions)}"
+        for _ in range(20):
+            await asyncio.sleep(0.01)
+        assert [(h["card"], h.get("firmer")) for h in later] == [("H3", True)]
+        assert (await room.hint("S"))["card"] == "H3"  # asked again: the firm answer at once
+        assert room.help["S"]["hints"] == 1  # and counted once
 
     asyncio.run(go())
 

@@ -23,8 +23,9 @@ SIGN_UP_FRIEND_GAP = 60  # seconds: an invite link makes the two friends right a
 OLD_AFTER_DAYS = 365  # an account nobody has used for this long counts as old
 LOG_KEEP = 500
 NOTICE_MAX = 300
-# Tables with someone at them, beyond which nobody but the owner can start a new one. One container of today's size
-# (0.5 CPU) keeps about 4 busy level 10 tables playing at full speed (load test, 2026-10-29).
+# Tables with someone at them, beyond which nobody but the owner can start a new one. One processor keeps about 4
+# busy level 10 tables playing at full speed (load test, 2026-11-26); the Admin page suggests a limit for the server
+# it runs on (load.suggest_limit).
 TABLE_LIMIT = 4
 TABLE_LIMIT_MAX = 100
 CONFIRM = "Please confirm with Face ID"  # the page asks for Face ID when an answer says this

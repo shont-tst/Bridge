@@ -304,6 +304,7 @@ a { color: var(--gold); text-underline-offset: 3px; }
 }
 .bidnote .text { flex: 1; min-width: 0; }
 .hint-odds { display: block; opacity: .85; font-variant-numeric: tabular-nums; }
+.hint-firming { opacity: .65; }
 .bidnote .text.yours { color: var(--gold); font-weight: 700; }
 /* a call or card still on its way on a poor connection (connection.ts Queued): a gentle pulse, so it reads as waiting */
 .bidnote .text.sending { animation: sending 1.6s ease-in-out infinite; }
@@ -703,7 +704,8 @@ button.danger { background: var(--red); border-color: var(--red); color: #fff; f
 .stat .row { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 8px; font-size: .92rem; padding: 2px 0; }
 .stat .row b { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .stat .tip { margin: 6px 0 0; font-size: .82rem; line-height: 1.35; padding: 7px 10px; border-radius: 10px; background: rgba(232, 182, 74, .16); }
-.stat .tip a { color: var(--gold); font-weight: 700; }
+.stat .tip a, .stat .tip button.link { color: var(--gold); font-weight: 700; }
+.stat .tip button.link { font: inherit; font-weight: 700; padding: 0; }
 .ticks { grid-column: 1 / -1; display: grid; gap: 2px; margin-top: 4px; }
 .ticks label { display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 8px; padding: 5px 0; font-size: .95rem; }
 .ticks input { width: 20px; height: 20px; margin: 0; accent-color: var(--gold); }
@@ -803,10 +805,13 @@ button.danger { background: var(--red); border-color: var(--red); color: #fff; f
 .load-chart rect { fill: var(--gold); }
 .load-chart rect.over, .load-chart rect.away { fill: #ff8a80; }
 .load-chart .limit { stroke: rgba(255, 255, 255, .55); stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; }
+.load-chart.load-jobs { height: 14px; }
+.load-chart.load-jobs rect { fill: rgba(255, 255, 255, .55); }
 .load-span { display: flex; justify-content: space-between; margin-top: -4px; }
 .moved-backdrop { align-items: center; justify-content: center; z-index: 90; }
 .moved { max-width: 420px; width: calc(100% - 32px); margin: 16px; border-radius: 18px; text-align: center; }
 .moved .result-actions { justify-content: center; }
+.slower p { margin: 0 0 16px; line-height: 1.4; }
 
 /* top right of the table: the score just left of your avatar, on the top line, so it never covers the felt or a bar under it */
 .topbar .corner { position: relative; z-index: 6; display: flex; align-items: center; gap: 8px; }

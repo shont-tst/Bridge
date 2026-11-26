@@ -9,7 +9,7 @@ import time
 
 if __name__ == "__main__":
     demo_path, moment, port, data = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
-    os.environ.update(BRIDGE_ACCOUNTS="1", BRIDGE_DATA_DIR=data, BRIDGE_RATE_LIMITS="0", BRIDGE_SECOND_BACKFILL="0",
+    os.environ.update(BRIDGE_ACCOUNTS="1", BRIDGE_DATA_DIR=data, BRIDGE_RATE_LIMITS="0", BRIDGE_SECOND_BACKFILL="0", BRIDGE_RULES_RECHECK="0", BRIDGE_SPEED_DAILY="0",
                       BRIDGE_BOT_DELAY="0.05")
     os.environ.pop("BRIDGE_TABLES_URL", None)
     os.environ.pop("BRIDGE_ORIGIN", None)

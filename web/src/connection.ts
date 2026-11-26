@@ -118,6 +118,7 @@ export function useRoom(session: Session | null, onSession: (s: Session) => void
   const queueRef = useRef<{ msg: Queued; slow?: number } | null>(null);
   const stateRef = useRef<RoomState | null>(null);
   const hintAsked = useRef<string | null>(null); // the decision the hint being worked out is for
+  const hintShown = useRef<string | null>(null); // the decision the hint on screen is for, for its firmer answer
   const wsRef = useRef<Sock | null>(null);
   const keyRef = useRef("");
   const revRef = useRef(0); // the room's update number in the last table update received
@@ -206,13 +207,24 @@ export function useRoom(session: Session | null, onSession: (s: Session) => void
           if (key !== keyRef.current) {
             setHint(null);
             setHintPending(false);
+            hintAsked.current = null; // the server stops a hint once its decision is made, so none may come
+            hintShown.current = null;
           }
           keyRef.current = key;
         } else if (msg.type === "ack") {
           unqueue(msg.id);
         } else if (msg.type === "hint") {
-          // a hint that arrives after the play moved on is for a decision already made
-          if (hintAsked.current === keyRef.current) setHint(msg as Hint);
+          // a hint that arrives after the play moved on is for a decision already made; a close call's firmer
+          // answer replaces the first one while the decision is still open
+          const h = msg as Hint;
+          if (h.phase === "playing" && h.firmer) {
+            if (hintShown.current === keyRef.current) setHint(h);
+            return;
+          }
+          if (hintAsked.current === keyRef.current) {
+            setHint(h);
+            hintShown.current = keyRef.current;
+          }
           hintAsked.current = null;
           setHintPending(false);
         } else if (msg.type === "moved") {
@@ -317,4 +329,23 @@ export function useRoom(session: Session | null, onSession: (s: Session) => void
   const takeBack = useCallback(() => setAttempt((n) => n + 1), []);
 
   return { state, error, connected, unreachable, send, hint, hintPending, askHint, moved, takeBack, queued };
+}
+
+// This page was at a table before a reload (Update available, Reload): kept for this tab only, so opening the app
+// again later starts on the home screen, while a reload goes back to the table.
+const AT_TABLE = "bridge-at-table";
+export function atTableBefore(): boolean {
+  try {
+    return sessionStorage.getItem(AT_TABLE) === "1";
+  } catch {
+    return false;
+  }
+}
+export function markAtTable(yes: boolean) {
+  try {
+    if (yes) sessionStorage.setItem(AT_TABLE, "1");
+    else sessionStorage.removeItem(AT_TABLE);
+  } catch {
+    /* private mode: a reload starts on the home screen */
+  }
 }

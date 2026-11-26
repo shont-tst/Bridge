@@ -183,10 +183,11 @@ function Level({ s }: { s: Stats }) {
   );
 }
 
-export default function MyStats({ account, onClose, back = "Lobby", onReplay }: {
+export default function MyStats({ account, onClose, back = "Lobby", onReplay, onPractice }: {
   account: Account;
   onClose: () => void;
   back?: string;
+  onPractice?: () => void; // opens Learn & practice (from the home screen; at a table it's named, not linked)
   onReplay?: (spec: ReplaySpec) => void; // Play on from here, or Play this deal again, under a board's review
 }) {
   const [days, setDays] = useState(30);
@@ -357,7 +358,19 @@ export default function MyStats({ account, onClose, back = "Lobby", onReplay }: 
                 {stats!.level.defending != null && <Row label="Level" value={stats!.level.defending.toFixed(1)} />}
                 <Row label="Tricks given away per hand" value={n.defender_lost ?? "–"} change={<Change now={n.defender_lost} before={b?.defender_lost} />} />
                 <Row label="Opening leads that cost a trick" value={n.leads ? `${n.costly_leads} of ${n.leads}` : "–"} />
-                {weakest === "defense" && <p className="tip">Your weakest area. Practice Opening leads and Signals from the ☰ menu.</p>}
+                {weakest === "defense" && (
+                  <p className="tip">
+                    Your weakest area. Practice opening leads and signals in{" "}
+                    {onPractice ? (
+                      <button className="link" onClick={onPractice}>
+                        Learn &amp; practice
+                      </button>
+                    ) : (
+                      "Learn & practice, on the home screen"
+                    )}
+                    .
+                  </p>
+                )}
               </div>
               <div className="stat">
                 <span className="k">

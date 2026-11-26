@@ -346,6 +346,33 @@ function Friends({ data }: { data: FriendsData }) {
   );
 }
 
+type Suggest = { tables: number; cpus: number; workers: number; seconds: number | null };
+
+// The limit the server suggests for itself (load.suggest_limit): about 4 busy tables per processor at a 3.5 s speed
+// check, more on a quicker one. Only a suggestion: the owner still sets the limit.
+function SuggestedLimit({ s, limit, use }: { s: Suggest; limit: string; use: (v: string) => void }) {
+  const cpus = `${s.cpus} processor${s.cpus === 1 ? "" : "s"}`;
+  const idle = Math.floor(s.cpus) > s.workers;
+  return (
+    <span className="small">
+      {`Suggested: ${s.tables} (${cpus}, ${s.seconds != null ? `speed check ${secs(s.seconds)}` : "no speed check yet"}).`}
+      {String(s.tables) !== limit && (
+        <>
+          {" "}
+          <button className="link" onClick={() => use(String(s.tables))}>
+            Use {s.tables}
+          </button>
+        </>
+      )}
+      {idle && (
+        <span className="muted-on-felt">
+          {` Only ${s.workers} of the ${Math.floor(s.cpus)} processors ${s.workers === 1 ? "works" : "work"} for the bots, since BRIDGE_SOLVER_WORKERS is ${s.workers}. Remove that setting in Azure (it then uses every processor) and the suggestion goes up.`}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function Tables({ data, busy, run, post, sure }: Props) {
   const [limit, setLimit] = useState(String(data.limit));
   const live = data.tables.filter((t: any) => t.here).length;
@@ -356,6 +383,7 @@ function Tables({ data, busy, run, post, sure }: Props) {
         <span className="small muted-on-felt">
           {`New tables can't be started while ${data.limit} are in use (${live} now), so the ones in play stay quick. You can always start one.`}
         </span>
+        {data.suggest && <SuggestedLimit s={data.suggest} limit={limit} use={setLimit} />}
         <div className="row">
           <input type="number" inputMode="numeric" min={1} max={100} value={limit} onChange={(e) => setLimit(e.target.value)} aria-label="Table limit" />
           <button className="small" disabled={busy || !limit || Number(limit) === data.limit} onClick={() => run(post("/api/admin/tables/limit", { tables: Number(limit) }), `Limit set to ${limit} tables.`)}>
@@ -403,9 +431,12 @@ function Tables({ data, busy, run, post, sure }: Props) {
 
 // --- Load: tables in use and how long players waited, over time ----------------------------------------------
 type Wait = { n: number; p50: number; p90: number; max: number } | null;
-type Sample = { at: number; tables: number; people: number; bot: Wait; hint: Wait; review?: Wait; mem?: number | null; away: number };
-type Bucket = { at: number; tables: number | null; bot: number | null; hint: number | null; review: number | null; mem: number | null; away: number };
+type Sample = { at: number; tables: number; people: number; bot: Wait; hint: Wait; review?: Wait; mem?: number | null; away: number; jobs?: string[] };
+type Bucket = { at: number; tables: number | null; bot: number | null; hint: number | null; review: number | null; mem: number | null; away: number; jobs: string[] };
 type Machine = { cpu: string | null; cpus: number | null; mem: number | null; mem_limit: number | null };
+type Speed = { at: number; seconds: number; why: "start" | "daily" | "phone"; cpu: string | null; tables: number; jobs: string[] };
+const SPEED_DAYS = 90; // the server keeps this many days of speed checks (load.py)
+const WHY: Record<Speed["why"], string> = { start: "after a restart", daily: "the daily check", phone: "a phone asked" };
 const RANGES: [number, string, number][] = [
   [1, "Day", 15 * 60], // days shown, label, seconds per bar
   [7, "Week", 3600],
@@ -416,7 +447,7 @@ const SLOW = 5; // seconds: past this a wait is noticeable (load test, 2026-10-2
 function buckets(rows: Sample[], days: number, step: number): Bucket[] {
   const end = Math.ceil(Date.now() / 1000 / step) * step;
   const out: Bucket[] = [];
-  for (let t = end - days * 86400; t < end; t += step) out.push({ at: t, tables: null, bot: null, hint: null, review: null, mem: null, away: 0 });
+  for (let t = end - days * 86400; t < end; t += step) out.push({ at: t, tables: null, bot: null, hint: null, review: null, mem: null, away: 0, jobs: [] });
   const top = (a: number | null, b: number | null | undefined) => (b == null ? a : Math.max(a ?? 0, b));
   for (const r of rows) {
     const b = out[Math.floor((r.at - (end - days * 86400)) / step)];
@@ -427,8 +458,42 @@ function buckets(rows: Sample[], days: number, step: number): Bucket[] {
     b.review = top(b.review, r.review?.p90);
     b.mem = top(b.mem, r.mem);
     b.away += r.away;
+    for (const j of r.jobs ?? []) if (!b.jobs.includes(j)) b.jobs.push(j);
   }
   return out;
+}
+
+// Background work the server did (catching up on saved boards, a backup): a slim strip, a mark where something ran.
+function JobStrip({ data }: { data: Bucket[] }) {
+  const W = 300;
+  const H = 12;
+  const bw = W / data.length;
+  return (
+    <svg className="load-chart load-jobs" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="When the server did background work">
+      {data.map((b, i) =>
+        b.jobs.length ? (
+          <rect key={i} x={i * bw} y={0} width={Math.max(bw - 0.5, 0.5)} height={H}>
+            <title>{`${when(b.at)}: ${b.jobs.join(", ")}`}</title>
+          </rect>
+        ) : null,
+      )}
+    </svg>
+  );
+}
+
+// Each background job in the range, with when it first and last ran: "Backup, Nov 25 at 7:31 PM".
+function jobRuns(rows: Sample[]): string[] {
+  const runs = new Map<string, [number, number]>();
+  for (const r of rows)
+    for (const j of r.jobs ?? []) {
+      const seen = runs.get(j);
+      runs.set(j, seen ? [seen[0], r.at] : [r.at, r.at]);
+    }
+  const clock = (t: number) => new Date(t * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const sameDay = (a: number, b: number) => new Date(a * 1000).toDateString() === new Date(b * 1000).toDateString();
+  return [...runs].map(([j, [a, b]]) =>
+    b - a < 600 ? `${j}, ${when(a)}` : `${j}, ${when(a)} to ${sameDay(a, b) ? clock(b) : when(b)}`,
+  );
 }
 
 function Bars({ data, value, line, label, unit }: { data: Bucket[]; value: (b: Bucket) => number | null; line?: number; label: string; unit: string }) {
@@ -453,11 +518,58 @@ function mb(n: number): string {
   return n >= 1024 ? `${(n / 1024).toFixed(1)} GB` : `${n} MB`;
 }
 
-function machineLine(m: Machine): string {
-  const cpu = m.cpu ? `${m.cpu.replace(/\((R|TM)\)/g, "").replace(/\s+/g, " ").trim()}, ` : "";
+const cpuName = (c: string | null) => (c ?? "an unknown processor").replace(/\((R|TM)\)/g, "").replace(/\s+/g, " ").trim();
+const secs = (n: number) => `${n.toFixed(1)} s`;
+
+// "Running on AMD EPYC 7763, 1 CPU." for the Speed check section
+function processorLine(m: Machine): string {
   const cpus = m.cpus ? `${m.cpus} CPU${m.cpus === 1 ? "" : "s"}` : "";
-  const mem = m.mem != null ? `. Memory ${mb(m.mem)}${m.mem_limit ? ` of ${mb(m.mem_limit)}` : ""} in use now` : "";
-  return `Running on ${cpu}${cpus}${mem}. Azure picks the processor, and it can change after an update.`;
+  return `Running on ${m.cpu ? `${cpuName(m.cpu)}${cpus ? `, ${cpus}` : ""}` : cpus || "an unknown processor"} now. Azure picks the processor, and it can change after an update.`;
+}
+
+// The server's speed check over time: one bar a day, the day's quickest run (busy tables slow it down).
+function SpeedHistory({ checks }: { checks: Speed[] }) {
+  if (!checks.length)
+    return <p className="small muted-on-felt">No speed checks yet. The first runs a few minutes after the server starts.</p>;
+  const last = checks[checks.length - 1];
+  // a bar a day, back to the first check kept (at least a month, at most SPEED_DAYS)
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const span = Math.min(SPEED_DAYS, Math.max(30, Math.ceil((start.getTime() / 1000 - checks[0].at) / 86400) + 1));
+  start.setDate(start.getDate() - (span - 1));
+  const days: Bucket[] = [];
+  for (let i = 0; i < span; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    days.push({ at: d.getTime() / 1000, tables: null, bot: null, hint: null, review: null, mem: null, away: 0, jobs: [] });
+  }
+  for (const c of checks) {
+    const i = days.findIndex((d, k) => c.at >= d.at && (k === days.length - 1 || c.at < days[k + 1].at));
+    if (i >= 0) days[i].bot = Math.min(days[i].bot ?? Infinity, c.seconds);
+  }
+  // typical time on each processor the server has run on, in the order it first ran on them
+  const byCpu = new Map<string, number[]>();
+  for (const c of checks) byCpu.set(cpuName(c.cpu), [...(byCpu.get(cpuName(c.cpu)) ?? []), c.seconds]);
+  const middle = (v: number[]) => [...v].sort((a, b) => a - b)[Math.floor(v.length / 2)];
+  const busy = last.tables || last.jobs.length ? ` with ${[last.tables ? `${last.tables} table${last.tables === 1 ? "" : "s"} in use` : "", last.jobs.join(", ")].filter(Boolean).join(" and ")}` : "";
+  return (
+    <>
+      <p className="small">{`Latest ${secs(last.seconds)}, ${when(last.at)} (${WHY[last.why]}${busy}).`}</p>
+      <Bars data={days} value={(x) => x.bot} label="Seconds the server took on the speed check, each day's quickest" unit=" s" />
+      <div className="load-span small muted-on-felt">
+        <span>{day(days[0].at)}</span>
+        <span>today</span>
+      </div>
+      <p className="small muted-on-felt">
+        {[...byCpu].map(([cpu, v]) => `On ${cpu}: usually ${secs(middle(v))} (${v.length} check${v.length === 1 ? "" : "s"}, ${secs(Math.min(...v))} to ${secs(Math.max(...v))}).`).join(" ")}
+      </p>
+      <p className="small muted-on-felt">
+        The same bot work each time (the strongest bots play a first trick), so lower is faster. It runs a few minutes after
+        each restart, every day at 4 AM Pacific, and when a phone checks whether Play locally would be slower. Busy tables
+        slow it down, so each bar is that day's quickest.
+      </p>
+    </>
+  );
 }
 
 function Load({ data, account }: { data: any; account: Account }) {
@@ -491,8 +603,7 @@ function Load({ data, account }: { data: any; account: Account }) {
   return (
     <section className="admin-sec">
       <p className="small muted-on-felt">
-        {`${data.now.tables} table${data.now.tables === 1 ? "" : "s"} in use now, ${data.now.people} ${data.now.people === 1 ? "person" : "people"} playing. Limit ${data.limit}. Written down every ${Math.round(data.every / 60)} minutes.`}
-        {m && ` ${machineLine(m)}`}
+        {`${data.now.tables} table${data.now.tables === 1 ? "" : "s"} in use now, ${data.now.people} ${data.now.people === 1 ? "person" : "people"} playing. Limit ${data.limit}. Updated every ${Math.round(data.every / 60)} minutes.`}
       </p>
       <div className="admin-tabs" role="tablist">
         {RANGES.map(([d, label]) => (
@@ -502,7 +613,7 @@ function Load({ data, account }: { data: any; account: Account }) {
         ))}
       </div>
       {!rows && <p className="small muted-on-felt">Loading…</p>}
-      {rows && !rows.length && <p className="small muted-on-felt">Nothing written down yet. The first figures appear a few minutes after the server starts.</p>}
+      {rows && !rows.length && <p className="small muted-on-felt">No figures yet. They appear a few minutes after the server starts.</p>}
       {rows && rows.length > 0 && (
         <>
           <p className="small">
@@ -525,12 +636,25 @@ function Load({ data, account }: { data: any; account: Account }) {
           <Bars data={b} value={(x) => x.review} line={SLOW} label="Seconds from a board's end until its review had its odds" unit=" s" />
           {span}
           <p className="small muted-on-felt">Seconds from the end of a board until its review had all its odds and Helped or Cost figures.</p>
+          <h3>Background work</h3>
+          <JobStrip data={b} />
+          {span}
+          <p className="small muted-on-felt">
+            {jobRuns(rows).length
+              ? `Jobs that share the processor with the tables: ${jobRuns(rows).join("; ")}.`
+              : "No background jobs ran. Jobs like catching up on saved boards or a backup share the processor with the tables."}
+          </p>
           <h3>Memory in use</h3>
           <Bars data={b} value={(x) => x.mem} line={m?.mem_limit ?? undefined} label="Memory the server used, with its limit" unit=" MB" />
           {span}
-          <p className="small muted-on-felt">Everything the server does, feedback included.{m?.mem_limit ? " The dashed line is the limit." : ""}</p>
+          <p className="small muted-on-felt">
+            {m?.mem != null ? `${mb(m.mem)}${m.mem_limit ? ` of ${mb(m.mem_limit)}` : ""} in use now. ` : ""}Everything the server does, feedback included.{m?.mem_limit ? " The dashed line is the limit." : ""}
+          </p>
         </>
       )}
+      <h3>Speed check</h3>
+      {m && <p className="small muted-on-felt">{processorLine(m)}</p>}
+      <SpeedHistory checks={data.speed ?? []} />
     </section>
   );
 }

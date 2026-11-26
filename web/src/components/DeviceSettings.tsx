@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { deviceName } from "../connection";
-import { botsHere, offlineReady, offlineSupported, onOfflineProgress, prepareOffline, setBotsHere } from "../offline";
+import { botsHere, offlineReady, offlineSupported, onOfflineProgress, onSpeedChecked, prepareOffline, setBotsHere, speedVsServer } from "../offline";
 import { PlayLocallyInfo } from "./Explain";
 import type { Prefs } from "../prefs";
 
@@ -37,6 +37,12 @@ export default function DeviceSettings({ prefs, onPrefs }: { prefs: Prefs; onPre
   );
 }
 
+/** "This iPhone thinks at 1.5× the server's speed.", from the monthly speed check (offline.ts). */
+export function speedLine(ratio: number, device: string): string {
+  const r = Math.round(ratio * 10) / 10;
+  return r >= 0.9 && r <= 1.1 ? `This ${device} thinks at about the server's speed.` : `This ${device} thinks at ${r}× the server's speed.`;
+}
+
 /** Where bot tables are played, in the ☰ menu: on this phone (the default, and the only way with no internet) or on
  * the server. A change applies at the end of the board (App.tsx moves the table). `server` says why this table is on
  * the server for now although the box is ticked: another person is at it, or an invite is out. */
@@ -44,7 +50,9 @@ export function BotsHere({ server }: { server?: string }) {
   const [here, setHere] = useState(botsHere);
   const [ready, setReady] = useState(offlineReady);
   const [got, setGot] = useState(0);
+  const [speed, setSpeed] = useState(speedVsServer);
   const device = deviceName() || "device";
+  useEffect(() => onSpeedChecked(() => setSpeed(speedVsServer())), []);
   useEffect(() => {
     const off = onOfflineProgress((done) => {
       setGot(done);
@@ -77,6 +85,12 @@ export function BotsHere({ server }: { server?: string }) {
                   ? `Bots play on this ${device}, with or without internet.`
                   : `Getting ready to play without internet… ${Math.round(got * 100)}%`}
           </span>
+          {speed != null && (
+            <>
+              <br />
+              <span className="muted">{speedLine(speed, device)}</span>
+            </>
+          )}
         </span>
       </label>
     </>

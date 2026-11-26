@@ -3,15 +3,19 @@
 // in early iteration and changes only when the owner says so (then the minor starts again at 1). NEWS: one entry per day,
 // newest first, about the last 5 days, dated by the day it was published in Pacific time. Each entry lists the changes a player would notice in plain words, features
 // first and a bare "Bug fixes." (or "Bug and UI fixes.") last (don't spell out what was fixed or small UI tweaks).
-export const VERSION = "2.63";
+export const VERSION = "2.76";
 
 import { CHEAT_SHEET_HTML } from "./components/CheatSheet";
 
 export const NEWS: [string, string[]][] = [
+  ["November 26, 2026", [
+    "<b>Skip hand with a partner:</b> when you and a friend play against bots, either of you can skip a hand once the other agrees.",
+  ]],
   ["November 25, 2026", [
     "<b>Learn & practice:</b> one button on the home screen for Learn to play, Your mistakes and every lesson.",
     "<b>Your mistakes:</b> your past mistakes come back as puzzles. Practice them all or one kind, such as bidding or defense, and play any deal again from the review.",
     "<b>Your tables:</b> the home screen lists every table you're still seated at. Go back to any of them, or quit it.",
+    "<b>Smarter bidding:</b> bots compete better when the opponents bid over them, double their game with sure defensive tricks, and make fewer penalty doubles after an overcall when they could show a major.",
   ]],
   ["November 24, 2026", [
     "<b>Claims play out:</b> no more Accept or Reject. When a bot claims, the last cards play out quickly on the table.",

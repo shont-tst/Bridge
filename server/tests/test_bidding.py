@@ -464,6 +464,26 @@ class TestSweepFindings:
         assert bid("K32.J632.J76.K43", "1H", "P", "2H", "P", "3H", "P") == "P"
         assert bid("K32.J632.J76.A43", "1H", "P", "2H", "P", "3H", "P") == "4H"
 
+    def test_four_card_major_before_penalty_double(self):
+        # A reported board: 1C (1D), 10 HCP and Q-10-9-2 behind the overcaller. Show the spades, don't double.
+        assert bid("AQJ2.J765.QT92.2", "1C", "1D") == "1S"
+
+    def test_penalty_double_needs_strong_trumps(self):
+        assert bid("K2.J76.KQT9.Q754", "1C", "1D") == "X"   # 4 with two of the top three
+        assert bid("72.K76.QT873.AJ4", "1C", "1D") == "X"   # 5 with two honors
+        assert bid("K2.KJ7.QT92.Q754", "1C", "1D") != "X"   # 4 with only Q-10
+        assert explain("1C", "1D", "X").text.startswith("Penalty double")
+
+    def test_hint_text_matches_meaning_of_penalty_double(self):
+        a = Auction("N", ["1C", "1D"])
+        dec = ENGINE.choose(H("K2.J76.KQT9.Q754"), a)
+        assert dec.call == "X" and dec.text == explain("1C", "1D", "X").text
+
+    def test_double_is_negative_when_negative_doubles_are_on(self):
+        neg = make_engine({c.id for c in ALL_CONVENTIONS if c.default_on} | {"negative_doubles"})
+        assert bid("AQJ2.J765.QT92.2", "1C", "1D", engine=neg) == "X"
+        assert explain("1C", "1D", "X", engine=neg).text.startswith("Negative double")
+
     def test_rescue_partners_overcall_doubled_for_penalty(self):
         assert bid("85..K97652.T8762", "P", "1D", "1H", "X", dealer="S") == "2C"
 
@@ -597,3 +617,31 @@ class TestHandSweep:
         assert bid(hand, *calls[:-1], dealer=dealer) == calls[-1]
         lo, hi = explain(*calls, dealer=dealer).hcp
         assert lo <= Eval(H(hand)).hcp <= hi
+
+
+class TestCompetingAfterTheirBid:
+    """When the opponents bid over us: compete in a known fit, or bid a long suit again (checked on sweeps)."""
+
+    def test_raises_a_known_fit_to_the_three_level(self):
+        # sweep seed 500409: partner's weak two, they overcall 3♦, 3 spades and 9 HCP: 3♠ (a 9-card fit)
+        assert bid("T84.QJ84.AJ2.Q87", "2S", "3D", dealer="E") == "3S"
+
+    def test_rebids_a_six_card_suit_at_the_two_level(self):
+        # sweep seed 500318: 1♥ (1♠) 2♥ P P, six spades: 2♠
+        assert bid("KT9743.T.AQ652.A", "1H", "1S", "2H", "P", "P", dealer="S") == "2S"
+
+    def test_no_rebid_over_their_3nt(self):
+        # sweep seed 508227: bidding a 7-card suit again over their 3NT lost on re-dealt layouts
+        assert bid("KJT8743.K65.J4.4", "1D", "1S", "3N", "P", "P", dealer="W") == "P"
+
+    def test_no_rebid_when_partner_doubled_them(self):
+        # sweep seed 506608: partner's penalty double of 2♦ stands
+        assert bid("T.AQT832.5.KT975", "1H", "2D", "X", "P", dealer="N") == "P"
+
+    def test_doubles_their_game_with_quick_tricks_when_partner_has_values(self):
+        # sweep seed 133: partner responded 1♠, they sacrifice in 5♦; ♠AK ♥AQ is 3½ quick tricks
+        assert bid("AKT98.AQ8643.5.6", "1H", "X", "1S", "P", "4S", "X", "P", "5D") == "X"
+
+    def test_no_double_of_their_game_when_partner_has_shown_nothing(self):
+        # 4 quick tricks, but partner passed: on re-dealt layouts this double lost too often
+        assert bid("KQ2.AKJ64.A43.54", "1H", "4S", "P", "P") == "P"

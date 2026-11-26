@@ -20,7 +20,7 @@ const WifiJoin = lazy(() => import("./WifiPair").then((m) => ({ default: m.WifiJ
 
 type Mode = "start" | "signup" | "device";
 
-export default function Lobby({ onJoin, notice, account, friends, onAccount, onLearn, onPuzzles, hub, onHub }: {
+export default function Lobby({ onJoin, notice, account, friends, onAccount, onLearn, onPuzzles, hub, onHub, onStats }: {
   onJoin: (s: Session, invite?: boolean) => void; // invite: open Invite to game at the new table
   notice?: string | null;
 
@@ -31,6 +31,7 @@ export default function Lobby({ onJoin, notice, account, friends, onAccount, onL
   onPuzzles?: (kind?: string) => void; // Your mistakes, every kind or only one (PuzzleIntro's KINDS)
   hub: boolean; // Learn & practice is open
   onHub: (open: boolean) => void;
+  onStats?: () => void; // My stats (signed in only)
 }) {
   const params = new URLSearchParams(location.search);
   const urlRoom = params.get("room")?.toUpperCase() ?? "";
@@ -414,6 +415,7 @@ export default function Lobby({ onJoin, notice, account, friends, onAccount, onL
         }}
         onLearn={onLearn}
         onPuzzles={user ? onPuzzles : undefined}
+        onStats={onStats}
         onPractice={practice}
       />
     );

@@ -14,6 +14,7 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from urllib.parse import parse_qsl, unquote
 
 from fastapi import Body, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -23,21 +24,22 @@ from fastapi.staticfiles import StaticFiles
 from .accounts import Accounts, AuthError, origin_for
 from .bidding.conventions import BY_ID, convention_list, make_engine, requirements
 from .bidding.lessons import LEADS, LEADS_PAGE, LESSONS, SIGNALS, SIGNALS_PAGE, examples_for, lesson_list
-from .game.room import REMEMBERED, Room, Rooms, TableClosed
+from .game.room import REMEMBERED, Room, Rooms, TableClosed, at as solver_at
+from .game.speed import bench as speed_bench
 from .game.second import fill_split
 from .game.table import auction_shown
 from .limits import Limiter, RateLimit, visitor
 from . import solver
 from .tutorial import card_tricks as tutorial_card_tricks
-from .admin import CONFIRM, OLD_AFTER_DAYS, Admin, live, table_view
+from .admin import CONFIRM, OLD_AFTER_DAYS, TABLE_LIMIT_MAX, Admin, live, table_view
 from .backups import Backups, pacific_today
-from .load import SAMPLE_EVERY, Load, machine, timings as load_timings
+from .load import SAMPLE_EVERY, Load, machine, suggest_limit, timings as load_timings
 from .push import Push
 from .social import Social
 from .stats import history_from_facts, stats_from_facts
 from .feedback import Feedback
 from .puzzles import KINDS, Puzzles
-from . import backfill, offline, site
+from . import backfill, offline, recheck, site
 from .connector import Connector, OAuthError
 from .store import open_store
 
@@ -72,12 +74,20 @@ async def lifespan(_app):
         pass
     task = asyncio.create_task(backups.run()) if store.durable else None  # weekly, of storage that lasts
     sampler = asyncio.create_task(load.run(table_counts))
+    # the speed check after each start and daily, for the Load tab's history
+    speeds = asyncio.create_task(speed_check.daily()) if os.environ.get("BRIDGE_SPEED_DAILY", "1") != "0" else None
     # saved boards from before the second table get one, once, in the background (backfill.py)
     second = asyncio.create_task(backfill.run(accounts)) if os.environ.get("BRIDGE_SECOND_BACKFILL", "1") != "0" else None
+    # after a change of the bidding rules, saved boards' reviews are checked against them once (recheck.py)
+    rules = asyncio.create_task(recheck.run(accounts)) if os.environ.get("BRIDGE_RULES_RECHECK", "1") != "0" else None
     yield
     sampler.cancel()
+    if speeds:
+        speeds.cancel()
     if second:
         second.cancel()
+    if rules:
+        rules.cancel()
     if task:
         task.cancel()
     rooms.save_all()  # a deploy stops this copy of the server: save every table so the next copy carries on
@@ -134,6 +144,67 @@ def published_version() -> str | None:
 def version():
     # a phone running an older client compares this with its own and offers Reload
     return JSONResponse({"version": published_version()}, headers={"Cache-Control": "no-store"})
+
+
+class SpeedCheck:
+    """The server's time on the speed check a phone also runs (game/speed.py), so the app can tell whether Play
+    locally thinks slower than the server would. It runs live, in the same line for the solver as every table's bots,
+    so a busy server answers with a slower time. One run at a time, and its answer is given for KEEP seconds.
+
+    Every run is written down for the Admin page's Load tab (load.py), so the server's speed can be followed over
+    time: `daily()` runs it a few minutes after each start and once a day at a quiet hour (QUIET, Pacific)."""
+    KEEP = 600
+    AFTER_START = 300  # seconds: let a start's own work (tables coming back, catching up on boards) get going first
+    QUIET = 4  # 4 AM Pacific: the fewest tables
+
+    def __init__(self):
+        self._last: tuple[float, dict] | None = None
+        self._running: asyncio.Future | None = None
+
+    async def run(self, why: str = "phone") -> dict:
+        if why == "phone" and self._last and time.monotonic() - self._last[0] < self.KEEP:
+            return self._last[1]
+        if self._running is None or self._running.done():
+            self._running = asyncio.ensure_future(self._measure(why))
+        return await asyncio.shield(self._running)
+
+    async def _measure(self, why: str) -> dict:
+        seconds = await asyncio.get_running_loop().run_in_executor(None, solver_at, solver.BOT, speed_bench)
+        out = {"seconds": seconds, "version": published_version()}
+        self._last = (time.monotonic(), out)
+        try:
+            await asyncio.to_thread(load.speed, seconds, why, table_counts()[0])
+        except Exception:  # the history is a bonus; the phone still gets its answer
+            log.exception("couldn't write down the speed check")
+        return out
+
+    @classmethod
+    def until_quiet(cls, now: dt.datetime) -> float:
+        """Seconds from `now` (aware) to the next QUIET o'clock, Pacific."""
+        pacific = now.astimezone(ZoneInfo("America/Los_Angeles"))
+        at = pacific.replace(hour=cls.QUIET, minute=0, second=0, microsecond=0)
+        if at <= pacific:
+            at = (pacific + dt.timedelta(days=1)).replace(hour=cls.QUIET, minute=0, second=0, microsecond=0)
+        return (at - pacific).total_seconds()
+
+    async def daily(self) -> None:
+        await asyncio.sleep(self.AFTER_START)
+        why = "start"
+        while True:
+            try:
+                await self.run(why)
+            except Exception:
+                log.exception("the speed check failed")
+            await asyncio.sleep(self.until_quiet(dt.datetime.now(dt.timezone.utc)))
+            why = "daily"
+
+
+speed_check = SpeedCheck()
+
+
+@app.get("/api/speed")
+async def speed():
+    return JSONResponse(await speed_check.run(), headers={"Cache-Control": "no-store"})
 
 
 class StorageCheck:
@@ -739,7 +810,8 @@ def admin_tables(authorization: str | None = Header(None)):
     online = [{"name": u["name"], "id": uid} for uid in social.sockets if social.sockets[uid]
               for u in [accounts.user(uid)] if u]
     return {"tables": sorted((table_view(r) for r in rooms.rooms.values()), key=lambda t: -t["active"]),
-            "online": online, "invites": admin.invites(), "limit": admin.table_limit()}
+            "online": online, "invites": admin.invites(), "limit": admin.table_limit(),
+            "suggest": suggest_limit(machine(), load.speeds(), most=TABLE_LIMIT_MAX)}
 
 
 @app.get("/api/admin/load")
@@ -747,7 +819,7 @@ def admin_load(days: int = 7, authorization: str | None = Header(None)):
     _admin(authorization)
     live_now, people = table_counts()
     return {"rows": load.rows(max(1, min(days, 30))), "limit": admin.table_limit(), "every": SAMPLE_EVERY,
-            "now": {"tables": live_now, "people": people}, "machine": machine()}
+            "now": {"tables": live_now, "people": people}, "machine": machine(), "speed": load.speeds()}
 
 
 @app.post("/api/admin/tables/limit")
@@ -1012,8 +1084,8 @@ def convention_page(conv_id: str):
 async def send_hint(room, seat: str, send) -> None:
     try:
         started = time.monotonic()
-        hint = await room.hint(seat)
-        if hint.get("phase") == "playing":  # a bidding hint is instant
+        hint = await room.hint(seat, later=send)  # a close call's firmer answer follows on its own
+        if hint.get("phase") == "playing":  # a bidding hint is instant; the time is to the first answer
             load_timings.record("hint", time.monotonic() - started)
         await send(hint)
     except ValueError as exc:  # e.g. the turn moved on before the hint was asked for

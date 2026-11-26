@@ -17,7 +17,7 @@ export default function SettingsPanel({ settings, onChange, onClose, onLeave, on
   onLeave?: () => void; // Leave, then Return later
   onQuit?: () => void; // Leave, then Quit table: for good
   others?: boolean; // other people at the table
-  onSkip?: () => void; // playing alone, mid-hand: deal a fresh hand without scoring this one
+  onSkip?: () => void; // mid-hand, alone or with a person as partner against bots: deal a fresh hand, this one unscored (a partner says yes first)
   onChangeSeat?: () => void; // seated: pick another seat, or watch
   onAccount?: () => void; // your account, at its AI coach section
   onInvite?: () => void; // signed in: pick friends to invite (otherwise Invite to game shares a link)

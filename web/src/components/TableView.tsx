@@ -25,6 +25,7 @@ import BoardScore from "./BoardScore";
 import ResultPanel from "./ResultPanel";
 import RubberOver from "./RubberOver";
 import GoneSheet from "./GoneSheet";
+import SkipSheet from "./SkipSheet";
 import ScoreSheet from "./ScoreSheet";
 import SeatPicker from "./SeatPicker";
 import { CHEAT_SHEET } from "./CheatSheet";
@@ -95,7 +96,7 @@ export const SIZES = {
   wideLow: { hand: [80, 112], back: [32, 46], dummy: [60, 84], sideDummy: [52, 74] },
   wideLower: { hand: [72, 100], back: [32, 46], dummy: [56, 78], sideDummy: [50, 70] },
 };
-const CLAIM_TRICK = 600; // ms a finished trick of a claim is on show (CLAIM_TRICK in the server's game/room.py)
+const CLAIM_TRICK = 1000; // ms a finished trick of a claim is on show (CLAIM_TRICK in the server's game/room.py)
 
 export const HAND_SPREAD = 12; // degrees: only a slight fan, so every card stands nearly upright
 
@@ -443,6 +444,34 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
       })}
     </div>
   );
+  // Skip hand with a person as partner: the partner says yes or no; the one who asked sees a line until then
+  const skipAsk = !watching && t && t.phase !== "done" ? state.skip_ask : null;
+  const skipSheet = skipAsk && skipAsk.by !== me && state.you && (
+    <SkipSheet
+      name={skipAsk.name}
+      onSkip={() => send({ type: "skip_answer", agree: true })}
+      onPlay={() => send({ type: "skip_answer", agree: false })}
+    />
+  );
+  const skipBar = skipAsk && skipAsk.by === me ? (
+    <div className="watch-bar gone-bar">
+      <span className="gone-wait">
+        Asked {nameOf(partnerOf(me))} to skip this hand
+        <button className="chip" onClick={() => send({ type: "skip_answer" })}>
+          Cancel
+        </button>
+      </span>
+    </div>
+  ) : !watching && state.skip_no ? (
+    <div className="watch-bar gone-bar">
+      <span className="gone-wait">
+        {state.skip_no} wants to play this hand
+        <button className="chip" onClick={() => send({ type: "skip_answer" })}>
+          OK
+        </button>
+      </span>
+    </div>
+  ) : null;
   const watchBar = watching ? (
     <div className="watch-bar">
       <span>Watching{state.pending ? ` · you sit ${SEAT_NAME[state.pending]} from the next board` : ""}</span>
@@ -532,7 +561,11 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
     if (!puzzleOpen) setSent({ card, key: turnKey }); // a puzzle's answer is shown from the server's answer instead
     send({ type: "play", card });
   };
-  const shownHint = hint && hint !== hiddenHint && view.your_turn ? hint : null;
+  // a close call's firmer answer to a hint the player already closed with OK stays closed
+  const hidden =
+    hint === hiddenHint ||
+    (hint?.phase === "playing" && hint.firmer && hiddenHint?.phase === "playing" && !!hint.decision && hint.decision === hiddenHint.decision);
+  const shownHint = hint && !hidden && view.your_turn ? hint : null;
   const hintedCard = shownHint?.phase === "playing" ? shownHint.card : undefined;
   const hintedCall = shownHint?.phase === "bidding" ? shownHint.call : undefined;
   const lastBid = [...view.auction].reverse().find((e) => /^[1-7]/.test(e.call))?.call ?? null;
@@ -719,6 +752,7 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
             />
           </span>
         ) : null}
+        {shownHint.firming ? <span className="hint-odds hint-firming">Close call: checking more layouts…</span> : null}
       </>
     ));
 
@@ -836,6 +870,8 @@ export default function TableView({ state, hint, hintPending, askHint, error, co
       {watchBar}
       {goneBar}
       {goneSheet}
+      {skipBar}
+      {skipSheet}
 
       {rubberOver && (
         <RubberOver

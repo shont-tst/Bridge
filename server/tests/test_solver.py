@@ -52,6 +52,10 @@ def test_urgent_calls_go_first(monkeypatch):
 
     monkeypatch.setattr(solver, "_call", fake_call)
     monkeypatch.delenv("BRIDGE_SOLVER_IN_PROCESS", raising=False)
+    # one worker, so the others queue behind "first" (a machine with more processors starts more by default)
+    monkeypatch.setattr(solver, "workers", lambda: 1)
+    monkeypatch.setattr(solver, "_queue", type(solver._queue)())
+    monkeypatch.setattr(solver, "_dispatchers", [])
 
     def at(priority, name):
         with solver.job(solver.Job(priority)):

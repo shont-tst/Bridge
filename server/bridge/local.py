@@ -33,7 +33,7 @@ from .bidding.engine import BiddingEngine
 from .game.odds import odds_ahead
 from .game.second import second_table
 from .game.room import Room, at, averages_ahead
-from .game.table import card_hint
+from .game.table import card_hint_first, card_hint_more
 from .solver import Cancelled, Job
 
 Post = Callable[[int, str], None]  # (connection, JSON text): connection 0 is the app itself
@@ -53,7 +53,7 @@ class InlineExecutor(ThreadPoolExecutor):
 
 
 # The work the helper does: what the server does ahead of time at the solver's lower urgencies.
-AHEAD = {card_hint, odds_ahead, averages_ahead, second_table}
+AHEAD = {card_hint_first, card_hint_more, odds_ahead, averages_ahead, second_table}
 
 
 @lru_cache(maxsize=8)
@@ -221,7 +221,7 @@ class LocalHost:
                 if seat is None:
                     raise ValueError("take a seat to play")
                 try:
-                    await send(await room.hint(seat))
+                    await send(await room.hint(seat, later=send))
                 except ValueError as exc:
                     await send({"type": "error", "message": str(exc)})
                 return

@@ -368,6 +368,10 @@ export function PlayLocallyInfo({ device }: { device: string }) {
         {device} takes over and hands the table back when the internet returns.
       </p>
       <p>The first time, the app saves about 12 MB on this {device} so it can play without internet.</p>
+      <p>
+        <strong>Speed:</strong> once a month this {device} and the server time the same bot thinking. 2× means this{" "}
+        {device} thinks twice as fast as the server. If it's much slower, the app suggests letting the server play the bots.
+      </p>
     </Info>
   );
 }

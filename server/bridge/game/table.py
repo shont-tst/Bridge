@@ -13,7 +13,7 @@ from dataclasses import dataclass, field, replace
 from ..bidding.context import Ctx
 from ..bidding.engine import BiddingEngine
 from ..bidding.partscore import Score
-from ..bots.card_play import _need, choose_card, merge, top_two_gap
+from ..bots.card_play import CardChoice, _need, choose_card, merge, top_two_gap
 from ..bots.difficulty import difficulty
 from ..bots.player import BotPlayer
 from ..bots import leads, signals
@@ -87,12 +87,34 @@ def card_hint(view: BotView, engine: BiddingEngine, rng: random.Random | None = 
     it can prefer a card that wins more tricks on average but makes or beats the contract less often).
     When the best cards make (or beat) it about equally often (`_extra_trick`), they are ranked by one trick more and
     the hint shows those odds as `extra` too, so it agrees with the review, which judges every trick."""
+    hint, close = card_hint_first(view, engine, rng)
+    return card_hint_more(view, engine, close, rng) if close else hint
+
+
+def card_hint_first(view: BotView, engine: BiddingEngine,
+                    rng: random.Random | None = None) -> tuple[dict, CardChoice | None]:
+    """The hint from the first HINT_SAMPLES layouts, and on a close call the run to firm it up with (`card_hint_more`),
+    else None. On a close call the hint says `firming`, so it can be shown while the extra layouts are worked out."""
     choice = choose_card(view, engine, replace(difficulty(10), samples=HINT_SAMPLES), rng)
     gap = top_two_gap(choice)
-    if gap is not None and gap < CLOSE:
-        more = choose_card(view, engine, replace(difficulty(10), samples=HINT_MORE), rng)
-        if more.samples and more.layouts:
-            choice = merge(choice, more, view)
+    close = choice if gap is not None and gap < CLOSE else None
+    hint = _hint(view, choice)
+    if close:
+        hint["firming"] = True
+    return hint, close
+
+
+def card_hint_more(view: BotView, engine: BiddingEngine, first: CardChoice,
+                   rng: random.Random | None = None) -> dict:
+    """A close call's hint over HINT_MORE more layouts as well as the first ones."""
+    choice = first
+    more = choose_card(view, engine, replace(difficulty(10), samples=HINT_MORE), rng)
+    if more.samples and more.layouts:
+        choice = merge(first, more, view)
+    return _hint(view, choice)
+
+
+def _hint(view: BotView, choice: CardChoice) -> dict:
     if not (choice.samples and choice.made):  # one legal card, or no layouts: the bot's pick as it stands
         return {"type": "hint", "phase": PLAYING, "seat": view.seat, "card": choice.card, "equal": [],
                 "samples": choice.samples}

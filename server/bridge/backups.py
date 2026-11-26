@@ -24,6 +24,7 @@ import os
 import re
 from pathlib import Path
 
+from .load import timings
 from .store import Store
 
 CONTAINER = "backups"
@@ -138,7 +139,8 @@ class Backups:
 
     def make(self, today: dt.date) -> str:
         name = f"backup-{today.isoformat()}.json.gz"
-        self.where.put(name, self._export())
+        with timings.working("Backup"):  # for the Admin page's Load tab
+            self.where.put(name, self._export())
         for old in self.listing()[KEEP:]:
             self.where.delete(old)
         return name

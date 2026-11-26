@@ -17,6 +17,7 @@ from .bidding.partscore import Score
 from .core.auction import Contract
 from .core.cards import SEATS, Hand
 from .game.second import fill_split, second_table
+from .load import timings
 from .stats import board_facts, rebuild_part_scores
 
 log = logging.getLogger("bridge.backfill")
@@ -52,26 +53,27 @@ async def run(accounts, pause: float = PAUSE) -> int:
     store = accounts.store
     if await asyncio.to_thread(store.get, *DONE):
         return 0
-    loop = asyncio.get_running_loop()
-    done = 0
-    for user in await asyncio.to_thread(accounts.all_users):
-        uid = user["id"]
-        records = await asyncio.to_thread(accounts.boards, uid)
-        rebuild_part_scores(records)  # boards saved before 1.93 didn't keep the rubber's part score
-        for rec in reversed(records):  # oldest first
-            if not needs(rec):
-                continue
-            key = rec.pop("key")
-            try:
-                out = await loop.run_in_executor(None, replay, rec)
-                rec["review"]["second"] = {rec["seat"]: out}
-                fill_split(rec)
-            except Exception as exc:  # not again: an empty one says it was tried
-                log.warning("could not play the second table for %s %s: %s", uid, key, exc)
-                rec["review"]["second"] = {}
-            await asyncio.to_thread(accounts.update_board, uid, key, rec)
-            done += 1
-            await asyncio.sleep(pause)
-    await asyncio.to_thread(store.put, *DONE, {"boards": done})
-    log.info("second tables worked out for %d saved boards", done)
-    return done
+    with timings.working("Second tables for saved boards"):  # for the Admin page's Load tab
+        loop = asyncio.get_running_loop()
+        done = 0
+        for user in await asyncio.to_thread(accounts.all_users):
+            uid = user["id"]
+            records = await asyncio.to_thread(accounts.boards, uid)
+            rebuild_part_scores(records)  # boards saved before 1.93 didn't keep the rubber's part score
+            for rec in reversed(records):  # oldest first
+                if not needs(rec):
+                    continue
+                key = rec.pop("key")
+                try:
+                    out = await loop.run_in_executor(None, replay, rec)
+                    rec["review"]["second"] = {rec["seat"]: out}
+                    fill_split(rec)
+                except Exception as exc:  # not again: an empty one says it was tried
+                    log.warning("could not play the second table for %s %s: %s", uid, key, exc)
+                    rec["review"]["second"] = {}
+                await asyncio.to_thread(accounts.update_board, uid, key, rec)
+                done += 1
+                await asyncio.sleep(pause)
+        await asyncio.to_thread(store.put, *DONE, {"boards": done})
+        log.info("second tables worked out for %d saved boards", done)
+        return done

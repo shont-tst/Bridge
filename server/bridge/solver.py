@@ -4,7 +4,8 @@ DDS is C code that isn't safe to run from two threads at once, and a crash insid
 down with every table on it. In a worker process, calls queue up there instead of behind one lock in the server, and
 if the worker ever crashes it is started again and the call tried once more; the tables carry on.
 
-BRIDGE_SOLVER_WORKERS sets how many workers run side by side (default 1; each holds DDS's memory), and
+BRIDGE_SOLVER_WORKERS sets how many workers run side by side (default: one per processor the container may use, since
+each keeps one processor busy; each also holds DDS's memory), and
 BRIDGE_DDS_THREADS how many threads DDS may use inside each. BRIDGE_SOLVER_IN_PROCESS=1 calls DDS directly instead,
 for scripts that already run their own worker processes (scripts/calibrate.py).
 
@@ -78,6 +79,34 @@ _seq = itertools.count()
 _dispatchers: list[threading.Thread] = []
 
 
+def _read(path: str) -> str | None:
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def cpus() -> float:
+    """The processors this container may use: its CPU quota (cgroup v2, then v1), else the cores it may run on."""
+    quota = (_read("/sys/fs/cgroup/cpu.max") or "").split()
+    if len(quota) == 2 and quota[0].isdigit():
+        return round(int(quota[0]) / int(quota[1]), 2)
+    q, p = _read("/sys/fs/cgroup/cpu/cpu.cfs_quota_us"), _read("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
+    if q and p and q.lstrip("-").isdigit() and int(q) > 0:
+        return round(int(q) / int(p), 2)
+    return len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+
+
+def workers() -> int:
+    """How many solver workers to run: BRIDGE_SOLVER_WORKERS if it's set, else one per whole processor (at least 1),
+    so a bigger container uses its extra processors without another setting."""
+    set_to = os.environ.get("BRIDGE_SOLVER_WORKERS", "").strip()
+    if set_to.isdigit() and int(set_to) > 0:
+        return int(set_to)
+    return max(1, int(cpus()))
+
+
 def _start_worker() -> None:
     if os.environ.get("BRIDGE_DDS_THREADS"):  # cap DDS threads (and memory) on small VMs
         from endplay._dds import SetMaxThreads
@@ -88,7 +117,7 @@ def _get_pool() -> ProcessPoolExecutor:
     global _pool
     with _lock:
         if _pool is None:
-            _pool = ProcessPoolExecutor(max_workers=int(os.environ.get("BRIDGE_SOLVER_WORKERS", "1")),
+            _pool = ProcessPoolExecutor(max_workers=workers(),
                                         mp_context=multiprocessing.get_context("spawn"), initializer=_start_worker)
         return _pool
 
@@ -116,7 +145,7 @@ def _dispatch() -> None:
 def _start_dispatchers() -> None:
     with _lock:
         if not _dispatchers:
-            for _ in range(int(os.environ.get("BRIDGE_SOLVER_WORKERS", "1"))):
+            for _ in range(workers()):
                 t = threading.Thread(target=_dispatch, name="solver-dispatch", daemon=True)
                 t.start()
                 _dispatchers.append(t)

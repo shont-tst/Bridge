@@ -289,6 +289,9 @@ export type Hint =
       goal?: "make" | "beat";
       extra?: { label: string; odds: { card: string; pct: number }[] }; // making is about equal: odds of one trick more ("10 tricks", "Down 2")
       signal?: string; // what the card tells partner, at a table that plays signals, or the opening lead's rule
+      decision?: string; // board/decision: a firmer answer to a hint the player hid stays hidden
+      firming?: boolean; // a close call: the first layouts' answer, with more layouts on the way
+      firmer?: boolean; // that answer over the extra layouts, replacing the first one
     };
 
 export interface RoomState {
@@ -302,6 +305,8 @@ export interface RoomState {
   waiting?: Partial<Record<Seat, string>>; // who sits where from the next board
   watchers?: string[];
   can_skip?: boolean;
+  skip_ask?: { by: Seat; name: string } | null; // a person playing as partner asked to skip this hand
+  skip_no?: string | null; // your partner said no to skipping this hand
   tutorial_call?: string | null; // Learn to play step 6: the cheat sheet's call on your turn
   players: Partial<Record<Seat, string>>;
   gone?: Partial<Record<Seat, Gone>>; // people who tapped Leave or closed the app 3+ minutes ago

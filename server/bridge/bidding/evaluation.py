@@ -71,6 +71,16 @@ class Eval:
         top_ranks = "AKQJT"[:top]
         return sum(1 for c in self.hand.suit(suit) if c[1] in top_ranks)
 
+    def quick_tricks(self) -> float:
+        """Defensive tricks from the top cards: AK 2, AQ 1½, A 1, KQ 1, K with another card ½."""
+        total = 0.0
+        for suit in "SHDC":
+            r = {c[1] for c in self.hand.suit(suit)}
+            n = len(self.hand.suit(suit))
+            total += 2 if {"A", "K"} <= r else 1.5 if {"A", "Q"} <= r else 1 if "A" in r or {"K", "Q"} <= r \
+                else 0.5 if "K" in r and n >= 2 else 0
+        return total
+
     def good_suit(self, suit: str) -> bool:
         """Two of the top three honors, or three of the top five."""
         return self.honors(suit, 3) >= 2 or self.honors(suit, 5) >= 3

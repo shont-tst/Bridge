@@ -292,6 +292,7 @@ def test_a_card_can_be_played_while_a_hint_is_thinking():
     import asyncio
 
     from bridge.game.room import Room
+    from bridge.solver import Cancelled
 
     async def go():
         room = Room("HINT")
@@ -299,13 +300,16 @@ def test_a_card_can_be_played_while_a_hint_is_thinking():
         room.update_settings(solo=True)
         room.new_board()
         t = room.table
-        while t.phase == "bidding" or t.is_bot_turn():  # bid it out and get to one of our cards
+        # bid it out and get to one of our cards with a choice (with one legal card the hint needs no thinking)
+        while t.phase == "bidding" or t.is_bot_turn() or len(t.play.legal_cards()) < 2:
             if t.is_bot_turn():
                 t.bot_step()
-            else:
+            elif t.phase == "bidding":
                 t.make_call(t.controller_to_act(), t.hint(t.controller_to_act())["call"])
+            else:
+                t.play_card(t.controller_to_act(), t.play.legal_cards()[0])
             if t.phase == "done":
-                return  # passed out: nothing to play
+                return  # passed out (or played out): nothing to play
         me = t.controller_to_act()
         first = asyncio.ensure_future(room.hint(me))
         second = asyncio.ensure_future(room.hint(me))
@@ -313,13 +317,83 @@ def test_a_card_can_be_played_while_a_hint_is_thinking():
         assert not room.lock.locked()  # the hint thinks without holding the room
         await room.handle(me, {"type": "play", "card": t.play.legal_cards()[0]})
         assert len(t.actions) and t.actions[-1][1] == "card"
-        a, b = await asyncio.gather(first, second)
-        assert a is b and a["card"]  # the second tap reused the first answer
+        a, b = await asyncio.gather(first, second, return_exceptions=True)
+        assert isinstance(a, Cancelled) and a is b  # one hint for both taps, stopped once the card was played
 
     asyncio.run(go())
 
 
-def test_skip_deals_a_fresh_hand_only_when_playing_alone():
+def test_skip_deals_a_fresh_hand_at_once_when_playing_alone():
+    import asyncio
+
+    from bridge.game.room import Room
+
+    async def go():
+        room = Room("SKIP")
+        room.join("Solo", None, None)
+        room.update_settings(solo=True)
+        room.new_board()
+        before = room.table
+        assert room.state_for("S")["can_skip"] is True
+        await room.handle("S", {"type": "skip"})
+        assert room.table is not before and room.table.board == before.board + 1
+        assert room.history == []  # the skipped hand isn't scored
+
+    asyncio.run(go())
+
+
+def _partners_room():
+    from bridge.game.room import Room
+
+    room = Room("SKIP2")
+    room.join("Solo", None, None)
+    room.join("Partner", None, None)
+    assert set(room.players) == {"S", "N"}
+    room.new_board()
+    return room
+
+
+def test_skip_with_a_person_as_partner_waits_for_their_yes():
+    import asyncio
+
+    async def go():
+        room = _partners_room()
+        before = room.table
+        assert room.state_for("S")["can_skip"] and room.state_for("N")["can_skip"]
+        await room.handle("S", {"type": "skip"})
+        assert room.table is before  # not yet: the partner is asked
+        assert room.state_for("N")["skip_ask"] == {"by": "S", "name": "Solo"}
+        await room.handle("N", {"type": "skip_answer", "agree": True})
+        assert room.table is not before and room.history == []
+        assert room.state_for("N")["skip_ask"] is None
+
+    asyncio.run(go())
+
+
+def test_skip_ask_said_no_or_taken_back():
+    import asyncio
+
+    async def go():
+        room = _partners_room()
+        before = room.table
+        await room.handle("S", {"type": "skip"})
+        await room.handle("N", {"type": "skip_answer", "agree": False})
+        assert room.table is before and room.state_for("N")["skip_ask"] is None
+        assert room.state_for("S")["skip_no"] == "Partner"  # the asker is told
+        await room.handle("S", {"type": "skip_answer"})  # OK: seen
+        assert room.state_for("S")["skip_no"] is None
+        await room.handle("S", {"type": "skip"})
+        await room.handle("S", {"type": "skip_answer"})  # the asker takes it back
+        assert room.state_for("N")["skip_ask"] is None and room.table is before
+        # both tapping Skip hand is agreeing
+        await room.handle("N", {"type": "skip"})
+        await room.handle("S", {"type": "skip"})
+        assert room.table is not before
+
+    asyncio.run(go())
+
+
+def test_no_skip_with_people_on_the_other_side():
     import asyncio
 
     import pytest
@@ -327,18 +401,17 @@ def test_skip_deals_a_fresh_hand_only_when_playing_alone():
     from bridge.game.room import Room
 
     async def go():
-        room = Room("SKIP")
+        room = Room("SKIP3")
         room.join("Solo", None, None)
-        _, partner = room.join("Partner", None, None)
+        room.join("Partner", None, None)
+        _, third = room.join("Third", None, None)
+        room.sit(third, "E")
         room.new_board()
+        assert room.state_for("S")["can_skip"] is False
         with pytest.raises(ValueError):
-            await room.handle("S", {"type": "skip"})  # someone else is playing
-        room.stand(partner)
-        room.update_settings(solo=True)
-        before = room.table
-        await room.handle("S", {"type": "skip"})
-        assert room.table is not before and room.table.board == before.board + 1
-        assert room.history == []  # the skipped hand isn't scored
+            await room.handle("S", {"type": "skip"})
+        room.stand(room.players["N"].token)  # a person opponent and no partner
+        assert room.state_for("S")["can_skip"] is False
 
     asyncio.run(go())
 
@@ -450,3 +523,25 @@ def test_health_reports_storage_and_backup_age(monkeypatch):
     assert client.get("/api/health").json()["backup_days"] is None
     monkeypatch.setattr(server.backups, "last", (server.pacific_today() - server.dt.timedelta(days=3)).isoformat())
     assert client.get("/api/health").json()["backup_days"] == 3
+
+
+def test_the_speed_check_is_timed_live_and_kept_a_while(monkeypatch):
+    """The app compares its own time on the speed check with the server's, to suggest server play when the phone is
+    slower. The server's time is measured when asked, so a busy server counts, and kept a few minutes."""
+    import bridge.app as app_mod
+    runs = []
+    monkeypatch.setattr(app_mod, "speed_bench", lambda: runs.append(1) or 1.25)
+    monkeypatch.setattr(app_mod, "speed_check", app_mod.SpeedCheck())
+    client = TestClient(app)
+    r = client.get("/api/speed")
+    assert r.json()["seconds"] == 1.25 and r.headers["cache-control"] == "no-store"
+    client.get("/api/speed")
+    assert len(runs) == 1  # the second ask got the kept answer
+    app_mod.speed_check._last = (app_mod.speed_check._last[0] - app_mod.SpeedCheck.KEEP - 1, {})
+    client.get("/api/speed")
+    assert len(runs) == 2
+
+
+def test_the_speed_check_is_the_same_work_each_time():
+    from bridge.game.speed import DEALS, first_trick
+    assert first_trick(DEALS[0])[0] == first_trick(DEALS[0])[0]

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAccount, usePresence, type Invite } from "./account";
-import { deviceName, loadSession, saveSession, useRoom, type Session } from "./connection";
-import { botsHere, canCarryOn, carryBack, carryOn, tableClosed, forgetTable, keepCarry, offlineReady, onBoardsKept, parkTable, parkWith, prepareOffline, retireEngine, sendBoards, serverAnswers, TableClosed } from "./offline";
+import { atTableBefore, deviceName, loadSession, markAtTable, saveSession, useRoom, type Session } from "./connection";
+import { botsHere, canCarryOn, onSpeedChecked, setBotsHere, slowAsked, slowerHere, carryBack, carryOn, tableClosed, forgetTable, offlineReady, onBoardsKept, parkTable, parkWith, prepareOffline, retireEngine, sendBoards, serverAnswers, TableClosed } from "./offline";
 import { usePrefs } from "./prefs";
 import { leaveWifi } from "./wifi";
 import AccountSheet from "./components/AccountSheet";
@@ -20,15 +20,25 @@ export default function App() {
     const fromUrl = new URLSearchParams(location.search).get("room");
     const saved = loadSession();
     if (fromUrl && (!saved || saved.room !== fromUrl.toUpperCase())) return null;
+    // Opening the app again starts on the home screen, where Your tables leads back to any table. A reload while
+    // at a table (Update available, Reload) stays at it, and so does a guest at a table with people, whose way back
+    // to that seat is this saved session.
+    if (saved && !atTableBefore() && (account.token || saved.local || saved.replay)) {
+      if (fromUrl) history.replaceState(null, "", "/");
+      return null;
+    }
     return saved;
   });
   const update = (s: Session | null) => {
     saveSession(s);
     setSession(s);
+    markAtTable(!!s);
   };
   const [notice, setNotice] = useState<string | null>(null);
   const [invite, setInvite] = useState<Invite | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [slower, setSlower] = useState(slowerHere); // this device is slower than the server (offline.ts)
+  useEffect(() => onSpeedChecked(() => setSlower(slowerHere())), []);
   const [accountOpen, setAccountOpen] = useState<boolean | "ai">(false); // "ai": open at the AI coach section
   const [prefs, setPrefs] = usePrefs(); // for the avatar sheet; the table keeps its own copy in step
   // four-color suits apply on every screen, not just at the table
@@ -190,7 +200,7 @@ export default function App() {
       clearInterval(again);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.local, session?.token, phase]);
+  }, [session?.local, session?.token, phase, slower]);
 
   // a table that went to the server for an invite stays there until someone joins it. Once they have, it's an
   // ordinary table with people: when it's down to you and the bots again, it comes back to this phone (below).
@@ -295,34 +305,8 @@ export default function App() {
     }
   };
 
-  // signed in on another device: go straight to the table you were just playing at, or offer the way back
   const sessionRef = useRef(session);
   sessionRef.current = session;
-  useEffect(() => {
-    if (!account.token || !account.user) return;
-    const user = account.user;
-    const token = account.token;
-    const check = () => {
-      if (document.visibilityState === "hidden" || connectAI || new URLSearchParams(location.search).get("room")) return;
-      account
-        .call<{ room?: string; jump?: boolean; snap?: object }>("/api/me/table")
-        .then((t) => {
-          const now = sessionRef.current;
-          if (t.room && t.snap && offlineReady()) keepCarry(t.room, t.snap); // to carry on with if the internet drops
-          if (t.room && t.jump && t.room !== now?.room && !now?.replay) {
-            history.replaceState(null, "", `/?room=${t.room}`);
-            update({ room: t.room, name: user.name, auth: token });
-          }
-        })
-        .catch(() => {});
-    };
-    check();
-    // a device left open in the lobby picks it up too, when you come back to it
-    const onShow = () => !sessionRef.current && check();
-    document.addEventListener("visibilitychange", onShow);
-    return () => document.removeEventListener("visibilitychange", onShow);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [account.token, account.user?.id]);
   const friends = usePresence(
     account.user ? account.token : null,
     (i) => {
@@ -412,7 +396,12 @@ export default function App() {
   if (statsOpen && account.user)
     return (
       <>
-        <MyStats account={account} onClose={() => setStatsOpen(false)} back={session ? "Table" : "Lobby"} onReplay={(spec) => void startReplay(spec)} />
+        <MyStats account={account} onClose={() => setStatsOpen(false)} back={session ? "Table" : hub ? "Learn & practice" : "Lobby"} onReplay={(spec) => void startReplay(spec)}
+          onPractice={session ? undefined : () => {
+            setStatsOpen(false);
+            setHub(true);
+          }}
+        />
         {overlays}
       </>
     );
@@ -454,6 +443,7 @@ export default function App() {
           onPuzzles={(kind) => void startReplay(null, kind)}
           hub={hub}
           onHub={setHub}
+          onStats={account.user ? () => setStatsOpen(true) : undefined}
           notice={notice}
           account={account}
           friends={friends}
@@ -516,6 +506,30 @@ export default function App() {
               <button onClick={leave}>Lobby</button>
               <button className="primary" onClick={takeBack}>
                 Continue here
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {slower && session.local && !session.wifi && phase === "done" && !moved && (
+        <div className="sheet-backdrop moved-backdrop">
+          <div className="sheet moved slower" role="dialog">
+            <h2>The server is faster</h2>
+            <p>
+              Bots think {slower < 2 ? `${Math.round((slower - 1) * 100)}% slower` : `${slower.toFixed(1)} times slower`} on
+              this {deviceName() || "device"} than on the server. Let the server play them? This{" "}
+              {deviceName() || "device"} still takes over if the internet drops.
+            </p>
+            <div className="result-actions">
+              <button onClick={slowAsked}>Keep local</button>
+              <button
+                className="primary"
+                onClick={() => {
+                  setBotsHere(false); // the table goes to the server now, between boards (above)
+                  slowAsked();
+                }}
+              >
+                Use the server
               </button>
             </div>
           </div>

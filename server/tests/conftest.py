@@ -6,6 +6,8 @@ os.environ.setdefault("BRIDGE_DATA_DIR", tempfile.mkdtemp(prefix="bridge-test-")
 os.environ.setdefault("BRIDGE_ACCOUNTS", "1")
 os.environ.setdefault("BRIDGE_RATE_LIMITS", "0")  # every test client comes from one address; test_limits turns them on
 os.environ.setdefault("BRIDGE_SECOND_BACKFILL", "0")  # tests that want it call backfill.run themselves
+os.environ.setdefault("BRIDGE_RULES_RECHECK", "0")  # likewise recheck.run
+os.environ.setdefault("BRIDGE_SPEED_DAILY", "0")  # the speed check after a start and daily (tests call it themselves)
 
 import pytest
 

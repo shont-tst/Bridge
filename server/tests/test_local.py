@@ -161,7 +161,7 @@ def test_the_helper_works_out_hints_and_odds_ahead_without_holding_up_the_game()
             await _settle(host)
             await asyncio.sleep(0)
         assert room.table.phase == "done"
-        assert "card_hint" in jobs and "odds_ahead" in jobs and "second_table" in jobs
+        assert "card_hint_first" in jobs and "odds_ahead" in jobs and "second_table" in jobs
         assert not room.table.result.review.get("odds_pending")
         assert room.table.result.review["second"]["S"]["level"] == 10  # the second table, played in the helper
 
@@ -172,7 +172,7 @@ def test_a_hint_for_a_card_already_played_is_dropped_before_it_starts():
     sent = []
     ex = HelperExecutor(lambda n, call: sent.append(n))
     from bridge.game.room import at
-    from bridge.game.table import card_hint
+    from bridge.game.table import card_hint_first as card_hint
     from bridge.solver import HINT, WARM, Job
     stale, tapped = Job(WARM), Job(WARM)
     first = ex.submit(at, Job(WARM), card_hint, None, None, None)

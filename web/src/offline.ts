@@ -18,6 +18,7 @@ const BOARDS = "bridge-offline-boards"; // finished boards for your account: [{u
 const DROPS = "bridge-offline-drops"; // boards Undo took back after they went to your account
 const READY = "bridge-offline-ready"; // the version whose engine files are all on this phone
 const WHERE = "bridge-bots-here"; // "0": the server plays the bots while there's internet (the menu's switch)
+const SPEED = "bridge-speed"; // this month's speed check: {month, here, server (seconds), asked}
 
 
 interface Kept {
@@ -203,7 +204,14 @@ class Engine {
     this.started = this.booted.then(() =>
       this.ask(this.game, { op: "start", snapshot, code: room, settings: fresh?.settings ?? {}, practice: fresh?.practice }, "started").then(() => undefined),
     );
+    void this.started.then(() => window.setTimeout(() => void checkSpeed(this), 3000), () => {});
     return this.started;
+  }
+
+  /** Seconds this device takes over the speed check (server/bridge/game/speed.py), on the helper when there is one,
+   * so the game doesn't wait. */
+  bench(): Promise<number> {
+    return this.ask(this.helper ?? this.game, { op: "bench" }, "bench").then((r) => Number(r.seconds));
   }
 
   open(sock: { hear: (text: string) => void }) {
@@ -220,6 +228,69 @@ class Engine {
     this.sockets.delete(conn);
     this.game.postMessage({ op: "close", conn });
   }
+}
+
+// --- is the server faster? ------------------------------------------------------------------------------------
+// Once a month, the first time a table opens here with internet, this device and the server each time the same piece
+// of bot thinking. The server times its share live, alongside every other table's bots, so a busy server is slower.
+// If this device takes more than SLOWER times as long, the app suggests letting the server play the bots (App.tsx).
+export const SLOWER = 1.25;
+interface Speed {
+  month: string;
+  here: number;
+  server: number;
+  asked?: boolean;
+}
+const month = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+let checking = false;
+const slowWatchers = new Set<() => void>();
+
+async function checkSpeed(e: Engine) {
+  if (checking || !botsHere() || !navigator.onLine || read<Speed | null>(SPEED, null)?.month === month()) return;
+  checking = true;
+  try {
+    const server = fetch("/api/speed", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null));
+    const here = await e.bench();
+    const s = await server;
+    if (!s || s.version !== VERSION || !(s.seconds > 0) || !(here > 0)) return; // try again next time
+    write(SPEED, { month: month(), here, server: s.seconds });
+    slowWatchers.forEach((fn) => fn());
+  } catch {
+    /* no answer: try again next time */
+  } finally {
+    checking = false;
+  }
+}
+
+/** How many times as long as the server this device took on this month's speed check, when that's enough to
+ * suggest the server and it hasn't been asked yet; else null. */
+export function slowerHere(): number | null {
+  const s = read<Speed | null>(SPEED, null);
+  if (!s || s.asked || s.month !== month() || !botsHere()) return null;
+  const ratio = s.here / s.server;
+  return ratio > SLOWER ? ratio : null;
+}
+
+/** How fast this device is next to the server on its latest speed check (2 = twice as fast), for the ☰ menu; null
+ * before the first check. */
+export function speedVsServer(): number | null {
+  const s = read<Speed | null>(SPEED, null);
+  return s && s.here > 0 && s.server > 0 ? s.server / s.here : null;
+}
+
+/** The suggestion was answered (either way): not again until next month's check. */
+export function slowAsked() {
+  const s = read<Speed | null>(SPEED, null);
+  if (s) write(SPEED, { ...s, asked: true });
+  slowWatchers.forEach((fn) => fn());
+}
+
+export function onSpeedChecked(fn: () => void): () => void {
+  slowWatchers.add(fn);
+  return () => void slowWatchers.delete(fn);
 }
 
 let engine: Engine | null = null;

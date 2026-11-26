@@ -48,7 +48,7 @@ const Row = ({ title, blurb, right, onClick, disabled }: { title: string; blurb:
 );
 
 /** Learn & practice, from the home screen: Learn to play, Your mistakes, and every lesson with practice deals. */
-export default function LearnHub({ account, mistakes, mistakeKinds = {}, error, onClose, onLearn, onPuzzles, onPractice }: {
+export default function LearnHub({ account, mistakes, mistakeKinds = {}, error, onClose, onLearn, onPuzzles, onStats, onPractice }: {
   account: Account;
   mistakes: number; // Your mistakes waiting as puzzles
   mistakeKinds?: Record<string, number>; // the same by kind (PuzzleIntro)
@@ -56,6 +56,7 @@ export default function LearnHub({ account, mistakes, mistakeKinds = {}, error, 
   onClose: () => void;
   onLearn: () => void; // Learn to play
   onPuzzles?: (kind?: string) => void; // Your mistakes (signed in only): every kind, or only one
+  onStats?: () => void; // My stats (signed in only)
   onPractice: (id: string) => void; // a bot table on this lesson
 }) {
   const progress = useProgress(account);
@@ -93,6 +94,7 @@ export default function LearnHub({ account, mistakes, mistakeKinds = {}, error, 
         <h2>Learn &amp; practice</h2>
         {error && <div className="error">{error}</div>}
         <ul className="tut-steps hub">
+          {onStats && <Row title="My stats" blurb="Your level, and where you gain or lose points." onClick={onStats} />}
           <Row title="Learn to play" blurb="Seven short steps for beginners." right={steps} onClick={onLearn} />
           {onPuzzles && (
             <Row

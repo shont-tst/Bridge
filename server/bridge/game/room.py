@@ -34,14 +34,14 @@ from .odds import MAX_CARDS as MAX_ODDS_CARDS, add_odds, odds_ahead
 from .second import add_split, second_table
 from .replay import RETIRE, at_spot, build as build_replay, card_facts, check as check_replay, judge_call, judge_card
 from .review import asked_marks, bidding_review, board_review, solve_undone, take_back_note, undone_review
-from .table import BIDDING, DONE, PLAYING, Table, card_hint
+from .table import BIDDING, DONE, PLAYING, Table, card_hint_first, card_hint_more
 
 CODE_LETTERS = "BCDFGHJKLMNPQRSTVWXZ"  # no vowels: avoids accidental words
 CODE_LENGTH = 4  # 160,000 codes; tables made between 1.19 and 1.72 have 6 and still work
 SEAT_NAME = {"N": "North", "E": "East", "S": "South", "W": "West"}
 BOT_DELAY = float(os.environ.get("BRIDGE_BOT_DELAY", "0.7"))
-CLAIM_CARD = 0.25  # seconds between the cards of a claim played out on the table
-CLAIM_TRICK = 0.6  # and the extra look at each finished trick (the app holds it as long: CLAIM_TRICK in TableView)
+CLAIM_CARD = 0.5  # seconds between the cards of a claim played out on the table
+CLAIM_TRICK = 1.0  # and the extra look at each finished trick (the app holds it as long: CLAIM_TRICK in TableView)
 DEAL_PAUSE = 2.0  # the phones animate the deal before the first call
 TRICK_PAUSES = (1.0, 2.0, 3.0, 4.0)  # how long a finished trick stays on the table
 
@@ -172,7 +172,9 @@ class Room:
         # cards played up to and including it, so a card taken back with Undo and played again is worked out again
         self._ahead: dict[tuple, dict] = {}
         self._ahead_task: asyncio.Task | None = None
-        self._hints: dict[tuple, asyncio.Future] = {}  # card hints by decision, so a second tap reuses the first
+        # card hints by decision, so a second tap reuses the first: (the first answer, the answer firmed up on a close
+        # call, or the same answer when it isn't close)
+        self._hints: dict[tuple, tuple[asyncio.Future, asyncio.Future]] = {}
         self._hint_jobs: dict[tuple, Job] = {}  # their solver jobs, to hurry one when tapped or stop it once played
         self.help: dict[str, dict[str, int]] = {}  # hints, undos and AI coach questions each seat used on this board
         # for an AI coach (coach.py), on this board: [seat, decision (the number of actions before it), "hints" or
@@ -181,6 +183,10 @@ class Room:
         self.asked: list[list] = []
         self.undone: list[dict] = []
         self.ready: set[str] = set()  # seats that tapped Next board: the next deal waits for every person at the table
+        # Skip hand with a person as partner: the seat that asked to throw this hand in, waiting on the partner's yes,
+        # and the seat whose partner said no (told so until they do something else)
+        self.skip_ask: str | None = None
+        self.skip_no: str | None = None
         self._last_counted: dict[str, tuple] = {}  # the last decision each kind of help was counted for
         self.finished: list[tuple[str, dict]] = []  # boards to save to players' accounts: (user id, record)
         self._to_save: list[tuple[str, dict]] = []  # the last board's records, to save again once its odds are in
@@ -472,9 +478,31 @@ class Room:
             return False
         return len(self.players) == 1 or not t.can_undo()
 
+    def skip_partner(self, seat: str | None) -> str | None | bool:
+        """Who must agree before `seat` throws this hand in with Skip hand: None when nobody need (playing alone, or
+        a bot plays for their partner who is away), the partner's seat when the two partners are the only people at
+        the table, and False when it isn't offered (people on the other side, or a deal played again)."""
+        if seat is None or seat not in self.players or self.settings.replay:
+            return False
+        others = set(self.players) - {seat}
+        if not others:
+            return None
+        if others != {partner(seat)}:
+            return False
+        return None if self.players[partner(seat)].covered else partner(seat)
+
+    def _skip_asked(self) -> str | None:
+        """The seat whose ask to skip this hand is still open: the hand is still being played, and the two partners
+        are still the only people at the table."""
+        s = self.skip_ask
+        if s is None or not self.table or self.table.phase == DONE or self.skip_partner(s) != partner(s):
+            return None
+        return s
+
     def new_board(self) -> None:
         self.board_no += 1
         self.help = {}
+        self.skip_ask = self.skip_no = None
         self.asked, self.undone = [], []
         self.ready = set()
         for p in list(self.watchers.values()):  # watchers waiting for a seat sit down now
@@ -627,7 +655,11 @@ class Room:
             # after Next board: who the next deal is waiting for
             "next_ready": seat in self.ready,
             "next_waiting": [self.players[s].name for s in self.holding_up()] if self.ready else [],
-            "can_skip": len(self.players) == 1 and seat is not None and not self.settings.replay,
+            "can_skip": self.skip_partner(seat) is not False,
+            # Skip hand with a person as partner: who asked (the partner answers), and the partner who said no
+            "skip_ask": (lambda s: {"by": s, "name": self.players[s].name} if s else None)(self._skip_asked()),
+            "skip_no": self.players[partner(seat)].name if seat and self.skip_no == seat
+            and partner(seat) in self.players else None,
             "tutorial_call": self._tutorial_call(seat),
             "table": table,
             "totals": self.totals(),
@@ -686,6 +718,8 @@ class Room:
         """Apply one client message from `seat` (None: someone watching or picking a seat)."""
         kind = msg.get("type")
         async with self.lock:
+            if seat is not None and seat == self.skip_no and kind not in ("ping", "skip", "skip_answer"):
+                self.skip_no = None
             if kind in ("sit", "stand", "watch"):
                 if kind == "sit":
                     self.sit(token, str(msg.get("seat", "")))
@@ -744,12 +778,29 @@ class Room:
                 self.ready = set()
                 self._count(seat, "undos")
             elif kind == "skip":
-                # playing alone: throw this hand in, unscored, and deal the next
-                if len(self.players) != 1:
-                    raise ValueError("skipping a hand is only when you're the only one playing")
+                # throw this hand in, unscored, and deal the next: at once when playing alone, or once a person
+                # playing as partner agrees (Skip hand from both, or Skip hand on the partner's ask)
+                ask = self.skip_partner(seat)
+                if ask is False:
+                    raise ValueError("skipping a hand is only when your partner is the only other person playing")
                 if not self.table or self.table.phase == DONE:
                     raise ValueError("no hand in progress to skip")
-                await asyncio.get_running_loop().run_in_executor(None, self.new_board)
+                self.skip_no = None
+                if ask is None or self._skip_asked() == ask:
+                    await asyncio.get_running_loop().run_in_executor(None, self.new_board)
+                else:
+                    self.skip_ask = seat
+            elif kind == "skip_answer":  # the partner's answer to an ask to skip, or the asker taking it back
+                asker = self._skip_asked()
+                if asker is None:
+                    if self.skip_no == seat:
+                        self.skip_no = None  # seen that the partner said no
+                elif seat == asker:
+                    self.skip_ask = None
+                elif msg.get("agree"):
+                    await asyncio.get_running_loop().run_in_executor(None, self.new_board)
+                else:
+                    self.skip_ask, self.skip_no = None, asker
             elif kind == "next_board":
                 if self.table and self.table.phase != DONE:
                     raise ValueError("finish this board first")
@@ -813,12 +864,16 @@ class Room:
                 self.rubber = self._rubber_before
                 self._rubber_before = None
 
-    async def hint(self, seat: str) -> dict:
+    async def hint(self, seat: str, later: Callable[[dict], Awaitable] | None = None) -> dict:
         """A suggestion for `seat` only; nothing is broadcast and the board doesn't change.
 
         Only the quick part holds the room lock: a card hint is worked out from a copy of what the player can see,
         so the player can still play (and the bots keep going) while it is thinking. Asking again for the same
-        decision waits for, or reuses, the first answer instead of starting another."""
+        decision waits for, or reuses, the first answer instead of starting another.
+
+        On a close call the first answer comes at once, marked `firming`, and the answer over more layouts goes to
+        `later` (marked `firmer`) when it's in, unless the decision is made first. Without `later` the answer waits
+        for the firmer one."""
         if not self.settings.hints:
             raise ValueError("hints are switched off for this table")
         if self._puzzle_open():
@@ -830,7 +885,22 @@ class Room:
             j = self._hint_jobs.get(self._hint_key(t, seat))
             if j:
                 j.priority = min(j.priority, HINT)  # asked for now: ahead of other tables' warm-ups
-        return ready if isinstance(ready, dict) else await asyncio.shield(ready)
+        if isinstance(ready, dict):
+            return ready
+        first, final = ready
+        if final.done() or later is None:
+            return await asyncio.shield(final)
+        hint = await asyncio.shield(first)
+        if hint.get("firming"):
+            asyncio.create_task(self._send_firmer(final, later))
+        return hint
+
+    @staticmethod
+    async def _send_firmer(final: asyncio.Future, later: Callable[[dict], Awaitable]) -> None:
+        try:
+            await later({**await asyncio.shield(final), "firmer": True})
+        except Exception:  # stopped once the card was played, or the phone has gone: nobody to tell
+            pass
 
     def coach_view(self, seat: str) -> dict:
         """What a player's own AI assistant sees of the board in progress: exactly what `seat` sees, only at tables
@@ -844,36 +914,59 @@ class Room:
             self._count(seat, "coach")
         return self.state_for(seat, self.players.get(seat))
 
-    def _card_hint(self, table: Table, seat: str) -> dict | asyncio.Future:
-        """A bidding hint outright, or the card hint for this decision: the one already being worked out, or a new one.
-        Call with the room lock held."""
+    def _card_hint(self, table: Table, seat: str) -> dict | tuple[asyncio.Future, asyncio.Future]:
+        """A bidding hint outright, or the card hint for this decision, (first answer, firmed-up answer): the one
+        already being worked out, or a new one. Call with the room lock held."""
         key = self._hint_key(table, seat)
-        future = self._hints.get(key)
-        if future is None:
+        work = self._hints.get(key)
+        if work is None:
             ready = table.hint_start(seat)
             if isinstance(ready, dict):
                 return ready
             self._drop_stale_hints()
             j = self._hint_jobs[key] = Job(WARM)
-            future = asyncio.get_running_loop().run_in_executor(None, at, j, card_hint, ready, table.engine,
-                                                                random.Random(self.rng.random()))
-            future.add_done_callback(lambda f: f.cancelled() or f.exception())  # a warm-up nobody asked for may fail quietly
-            self._hints[key] = future
-        return future
+            loop = asyncio.get_running_loop()
+            work = self._hints[key] = (loop.create_future(), loop.create_future())
+            for f in work:
+                f.add_done_callback(lambda f: f.cancelled() or f.exception())  # a warm-up nobody asked for may fail quietly
+            # each part gets its own layouts: on a phone each runs in the helper, from a copy of its random numbers
+            rngs = random.Random(self.rng.random()), random.Random(self.rng.random())
+            asyncio.create_task(self._work_hint(j, ready, table.engine, rngs, f"{table.board}/{len(table.actions)}",
+                                                *work))
+        return work
+
+    @staticmethod
+    async def _work_hint(j: Job, view, engine, rngs: tuple, decision: str, first: asyncio.Future,
+                         final: asyncio.Future) -> None:
+        """The first answer from HINT_SAMPLES layouts, then, on a close call, HINT_MORE more (table.card_hint)."""
+        loop = asyncio.get_running_loop()
+        try:
+            hint, close = await loop.run_in_executor(None, at, j, card_hint_first, view, engine, rngs[0])
+            hint["decision"] = decision  # the app keeps a hint it was told to hide hidden when it's firmed up
+            first.set_result(hint)
+            if close is not None:
+                hint = await loop.run_in_executor(None, at, j, card_hint_more, view, engine, close, rngs[1])
+                hint["decision"] = decision
+            final.set_result(hint)
+        except Exception as exc:  # stopped once the decision was made (solver.Cancelled), or failed
+            for f in (first, final):
+                if not f.done():
+                    f.set_exception(exc)
 
     @staticmethod
     def _hint_key(table: Table, seat: str) -> tuple:
         return (table.board, id(table), len(table.actions), seat)
 
     def _drop_stale_hints(self) -> None:
-        """Stop working out hints nobody asked for, for decisions already made: the solver's time goes to the bots and
-        other tables. One that was tapped still answers."""
+        """Stop working out hints for decisions already made, tapped or not: the app drops a hint that comes after the
+        card or call anyway, and a tapped one shares the solver with the bots at top urgency, so letting it run on
+        would only hold up the bots' next cards."""
         t = self.table
         now = (t.board, id(t), len(t.actions)) if t else None
         for key in [k for k in self._hints if k[:3] != now]:
             self._hints.pop(key)
             j = self._hint_jobs.pop(key, None)
-            if j and j.priority == WARM:
+            if j:
                 j.cancel()
 
     def kick_hint(self) -> None:

@@ -120,8 +120,10 @@ locally and files no feedback issues.
 | `BRIDGE_CONNECTOR_REDIRECTS` | none | Extra AI apps allowed to connect as the AI coach |
 | `BRIDGE_RATE_LIMITS` | on | `0` turns off rate limits, for local testing |
 | `BRIDGE_BOT_DELAY` | 0.7 | Seconds between bot actions, so people can follow |
-| `BRIDGE_SOLVER_WORKERS` | 1 | Solver processes; set to the number of CPUs |
+| `BRIDGE_SOLVER_WORKERS` | one per CPU | Solver processes; normally left unset, since it follows the container's CPUs |
 | `BRIDGE_SECOND_BACKFILL` | 1 | Saved boards from before the second table get one, once, in the background; 0 skips it |
+| `BRIDGE_RULES_RECHECK` | 1 | After a change of the bidding rules, saved boards' reviews are checked against them once, in the background; 0 skips it |
+| `BRIDGE_SPEED_DAILY` | 1 | The speed check runs after each start and daily at 4 AM Pacific, for the Admin Load tab; 0 skips it |
 | `BRIDGE_DDS_THREADS` | all cores | Cap the solver's threads (and memory) |
 | `BRIDGE_WEB_DIST` | `web/dist` | The built web app to serve |
 
